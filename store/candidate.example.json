@@ -8,7 +8,7 @@
   "icon": "https://raw.githubusercontent.com/cutemolly/dbx-plugin-my2sql/main/assets/plugin.svg",
   "tags": ["mysql", "binlog", "rollback", "dba"],
   "permissions": ["host.connections:read", "host.events"],
-  "source": "https://github.com/cutemolly/dbx-plugin-my2sql/tree/v1.0.0",
+  "source": "https://github.com/cutemolly/dbx-plugin-my2sql/tree/v1.0.1",
   "homepage": "https://github.com/cutemolly/dbx-plugin-my2sql",
   "license": "MIT",
   "releaseNotes": "Initial release: online (fake-replica) and offline binlog parsing, rollback/raw SQL and DML/big-transaction stats, and gated rollback execution.",

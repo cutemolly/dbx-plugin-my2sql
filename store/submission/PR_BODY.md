@@ -16,7 +16,7 @@ findings from that review are fixed here; see "Security review fixes" below.
 ## Source repository and tag
 
 Source: https://github.com/cutemolly/dbx-plugin-my2sql
-Immutable tag the candidates were built from: `v1.0.1` (commit `TAG_COMMIT_PLACEHOLDER`).
+Immutable tag the candidates were built from: `v1.0.1` (commit `254e02c63aca4ba570847fdf6c59616c3fde23d4`).
 The tag was created **before** the release build and has not been moved.
 
 Unsigned candidate assets and the merged `release-candidates.json` are attached to

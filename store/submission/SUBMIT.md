@@ -42,7 +42,7 @@ workflow generates them after review.
 
 4. CI runs `scripts/validate.mjs`. It will intentionally stay **red** with:
    `Catalog contains 1 open candidate(s) awaiting DBX Store signing:
-   io.github.my2sql@1.0.0`
+   io.github.my2sql@1.0.1`
    That is the success signal — it means the candidate is structurally valid and
    is now waiting on a maintainer.
 
