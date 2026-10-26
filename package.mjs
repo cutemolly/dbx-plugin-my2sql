@@ -34,9 +34,7 @@ if (goTags) {
 }
 
 const cli = process.env.DBX_PLUGIN_CLI || "dbx-plugin";
-// Probe without a shell so a missing CLI surfaces as ENOENT instead of a shell exit code.
-const cliProbe = spawnSync(cli, ["--help"], { encoding: "utf8" }).error;
-if (!cliProbe) {
+if (cliAvailable(cli)) {
   // The CLI packages from the project root; --target also accepts DBX_PLUGIN_TARGET.
   const result = spawnSync(cli, ["package", ".", "--target", target, "--output-dir", dist, "--artifact-url", path.basename(output)], { cwd: root, env, stdio: "inherit", shell: process.platform === "win32" });
   if (result.status !== 0) process.exit(result.status ?? 1);
@@ -57,4 +55,14 @@ function platformTarget() {
   const arch = { arm64: "arm64", x64: "x64" }[process.arch];
   if (!osName || !arch) throw new Error(`Unsupported plugin target: ${process.platform}-${process.arch}`);
   return `${osName}-${arch}`;
+}
+
+// Detect the dbx-plugin CLI in a platform-correct way. On Windows npm installs a
+// dbx-plugin.cmd shim that only resolves through a shell, so probe with
+// shell:true there; a missing command yields a non-zero status (not an ENOENT
+// error). On Unix a missing command surfaces as result.error instead.
+function cliAvailable(command) {
+  const useShell = process.platform === "win32";
+  const result = spawnSync(command, ["--version"], { encoding: "utf8", shell: useShell });
+  return !result.error && result.status === 0;
 }
