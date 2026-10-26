@@ -53,6 +53,11 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: cirootpw
+          # Entrypoint variables (not docker --options): mysqld flags would be
+          # invalid `docker create` arguments. binlog is on by default in 8.0.
+          MYSQL_BIN_LOG: mysql-bin
+          MYSQL_BINLOG_FORMAT: ROW
+          MYSQL_BINLOG_ROW_IMAGE: FULL
         ports:
           - 3306:3306
         options: >-
@@ -60,11 +65,6 @@ jobs:
           --health-interval=5s
           --health-timeout=10s
           --health-retries=20
-          --server-id=1
-          --log-bin=mysql-bin
-          --binlog-format=ROW
-          --binlog-row-image=FULL
-          --default-authentication-plugin=mysql_native_password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
