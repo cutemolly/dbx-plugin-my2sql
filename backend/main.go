@@ -11,7 +11,7 @@ import (
 )
 
 const pluginID = "io.github.my2sql"
-const pluginVersion = "1.0.0"
+const pluginVersion = "1.0.1"
 
 var errNoConnectionID = errors.New("missing connection id in lifecycle payload")
 
@@ -208,9 +208,10 @@ func (p *my2sqlPlugin) Handle(_ sdk.RequestContext, method string, params json.R
 			JobID              string `json:"jobId"`
 			File               string `json:"file"`
 			TargetConnectionID string `json:"targetConnectionId"`
+			ConfirmToken       string `json:"confirmToken"`
 		}
 		_ = json.Unmarshal(params, &q)
-		id, err := p.exec.Start(q.JobID, q.File, q.TargetConnectionID, publish)
+		id, err := p.exec.Start(q.JobID, q.File, q.TargetConnectionID, q.ConfirmToken, publish)
 		if err != nil {
 			return nil, sdk.NewError(-32000, err.Error())
 		}
@@ -293,6 +294,7 @@ func parseSpec(params json.RawMessage) (*ConnectionSpec, error) {
 		RuntimePort: atoiNum(payload.Runtime.Port, 0),
 		ServerID:    atoiAny(c.External["server_id"], 9999),
 		Timezone:    stringAny(c.External["timezone"], "+08:00"),
+		Tls:         stringAny(c.External["tls"], ""),
 	}
 	return spec, nil
 }

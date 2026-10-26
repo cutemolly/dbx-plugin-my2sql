@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,22 +33,58 @@ type execution struct {
 	mu       sync.Mutex
 }
 
+// pendingConfirm is the one-shot authorization produced by Prepare. Start only
+// runs when it presents this token; the token is bound to the exact
+// job/file/target triple and is consumed on the first Start attempt, so a
+// replayed or scripted exec/start cannot execute a file without a fresh,
+// validated Prepare. This moves the confirmation gate from the UI into the
+// sidecar.
+type pendingConfirm struct {
+	jobID    string
+	file     string
+	targetID string
+	created  time.Time
+}
+
+// confirmTTL bounds how long a Prepare result stays startable. Re-running
+// Prepare is cheap, so expiry only forces a fresh look at the preview.
+const confirmTTL = 10 * time.Minute
+
 // ExecManager runs generated rollback/SQL files against a target connection.
-// It is deliberately gated behind a prepare/confirm step in the UI so a
-// user never executes a flashback by accident.
+// Execution requires a confirmToken from Prepare (see pendingConfirm); the UI
+// confirmation dialog sits on top of that, it is not the gate itself.
 type ExecManager struct {
 	mu       sync.RWMutex
 	exec     map[string]*execution
+	pending  map[string]*pendingConfirm
 	sessions *SessionStore
 	jobs     *JobManager
 }
 
 func NewExecManager(sessions *SessionStore, jobs *JobManager) *ExecManager {
-	return &ExecManager{exec: make(map[string]*execution), sessions: sessions, jobs: jobs}
+	return &ExecManager{exec: make(map[string]*execution), pending: make(map[string]*pendingConfirm), sessions: sessions, jobs: jobs}
 }
 
-// Prepare counts statements and returns a bounded preview so the host can show
-// a confirmation dialog naming the target and the statement volume.
+func newConfirmToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate confirm token: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// gcPendingLocked drops expired confirmations. Callers hold m.mu.
+func (m *ExecManager) gcPendingLocked() {
+	for token, pe := range m.pending {
+		if time.Since(pe.created) > confirmTTL {
+			delete(m.pending, token)
+		}
+	}
+}
+
+// Prepare counts statements and returns a bounded preview plus a one-shot
+// confirmToken so the host can show a confirmation dialog naming the target
+// and the statement volume. Only Start with that token may execute the file.
 func (m *ExecManager) Prepare(jobID, fileName, targetConnectionID string) (map[string]any, error) {
 	if _, err := m.sessions.Require(targetConnectionID); err != nil {
 		return nil, err
@@ -68,16 +106,43 @@ func (m *ExecManager) Prepare(jobID, fileName, targetConnectionID string) (map[s
 	if len(preview) > 20 {
 		preview = preview[:20]
 	}
+	token, err := newConfirmToken()
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	m.gcPendingLocked()
+	m.pending[token] = &pendingConfirm{jobID: jobID, file: clean, targetID: targetConnectionID, created: time.Now()}
+	m.mu.Unlock()
 	return map[string]any{
 		"jobId":              jobID,
 		"file":               clean,
 		"statementCount":     len(stmts),
 		"targetConnectionId": targetConnectionID,
 		"firstStatements":    preview,
+		"confirmToken":       token,
 	}, nil
 }
 
-func (m *ExecManager) Start(jobID, fileName, targetConnectionID string, publish EventPublisher) (string, error) {
+func (m *ExecManager) Start(jobID, fileName, targetConnectionID, confirmToken string, publish EventPublisher) (string, error) {
+	if confirmToken == "" {
+		return "", fmt.Errorf("missing confirmToken: run exec/prepare first")
+	}
+	m.mu.Lock()
+	pe, ok := m.pending[confirmToken]
+	delete(m.pending, confirmToken) // one-shot, consumed even when validation below fails
+	m.gcPendingLocked()
+	m.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("unknown or already-used confirmToken: run exec/prepare again")
+	}
+	if time.Since(pe.created) > confirmTTL {
+		return "", fmt.Errorf("confirmToken expired: run exec/prepare again")
+	}
+	clean := filepath.Base(fileName)
+	if clean != fileName || pe.jobID != jobID || pe.file != clean || pe.targetID != targetConnectionID {
+		return "", fmt.Errorf("confirmToken does not match this job/file/target: run exec/prepare again")
+	}
 	spec, err := m.sessions.Require(targetConnectionID)
 	if err != nil {
 		return "", err
@@ -86,7 +151,7 @@ func (m *ExecManager) Start(jobID, fileName, targetConnectionID string, publish 
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, filepath.Base(fileName)))
+	data, err := os.ReadFile(filepath.Join(dir, clean))
 	if err != nil {
 		return "", err
 	}

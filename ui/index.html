@@ -224,6 +224,7 @@
           schemaErr: "cannot read schema",
           idle: "idle", offlineTag: "(offline)", statements: "statements", notReady: "not ready", error: "error",
           jobTpl: "job {id}", execStartedTpl: "execution {id} started…",
+          rePrepareNeeded: "Selection changed since Prepare; click Prepare again to re-confirm.",
           statTable: "Table", statInsert: "Insert", statUpdate: "Update", statDelete: "Delete", statTotal: "Total",
           executing: "executing",
           stopping: "stopping…", pathLabel: "Output path", copyFile: "Copy file path", copyDir: "Copy folder", copied: "Copied", noPath: "No output file yet.",
@@ -250,12 +251,18 @@
           schemaErr: "无法读取表结构",
           idle: "空闲", offlineTag: "（离线）", statements: "条语句", notReady: "未就绪", error: "错误",
           jobTpl: "任务 {id}", execStartedTpl: "执行 {id} 已启动…",
+          rePrepareNeeded: "选项自「预备」后已变化，请重新点击「预备」再次确认。",
           statTable: "表", statInsert: "Insert", statUpdate: "Update", statDelete: "Delete", statTotal: "合计",
           executing: "执行中",
           stopping: "停止中…", pathLabel: "产出路径", copyFile: "复制文件路径", copyDir: "复制所在目录", copied: "已复制", noPath: "暂无产出文件。",
         },
       };
       let copy = T.en, connections = [], currentJob = "", lastFiles = [], lastStats = null, lastOutDir = "", lastFileList = [];
+      // pendingExec caches the sidecar-issued confirmToken from exec/prepare so
+      // exec/start can present it. The token is one-shot and bound to the exact
+      // job/file/target triple; the backend is the real gate, this only avoids
+      // re-preparing for the same selection.
+      let pendingExec = null;
       // Browse targets the connection DBX currently has OPEN; the source
       // dropdown only configures job parameters.
       let browseConnId = "", initCtx = null;
@@ -400,7 +407,7 @@
         const id = sel("source").value; if (!id) return;
         try {
           const r = await invoke("binlog/list", { connectionId: id }, 20000);
-          sel("startFile").innerHTML = (r.files || []).map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+          sel("startFile").innerHTML = (r.files || []).map((f) => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join("");
         } catch (e) { sel("connectHint").textContent = String(e.message || e); sel("connectHint").hidden = false; }
       }
 
@@ -436,6 +443,7 @@
         sel("statsEmpty").hidden = false; sel("statsEmpty").textContent = copy.noResult;
         sel("fileList").innerHTML = ""; sel("preview").textContent = "-";
         sel("execFile").innerHTML = `<option value="">-</option>`;
+        pendingExec = null; sel("doExec") && (sel("doExec").disabled = true);
         sel("outPath").textContent = "-"; sel("copyHint").textContent = "";
         switchTab("stats");
       }
@@ -528,13 +536,17 @@
       }
       async function prepareExec() {
         const jobId = currentJob, file = sel("execFile").value, target = sel("target").value;
-        try { const r = await invoke("exec/prepare", { jobId, file, targetConnectionId: target }); sel("execInfo").textContent = `${r.statementCount} ${copy.statements} → ${target}\n\n` + (r.firstStatements || []).join("\n"); sel("doExec").disabled = false; }
-        catch (e) { sel("execInfo").textContent = String(e.message || e); sel("doExec").disabled = true; }
+        try { const r = await invoke("exec/prepare", { jobId, file, targetConnectionId: target }); pendingExec = { jobId, file, target, token: r.confirmToken }; sel("execInfo").textContent = `${r.statementCount} ${copy.statements} → ${target}\n\n` + (r.firstStatements || []).join("\n"); sel("doExec").disabled = false; }
+        catch (e) { pendingExec = null; sel("execInfo").textContent = String(e.message || e); sel("doExec").disabled = true; }
       }
       async function doExecute() {
+        const jobId = currentJob, file = sel("execFile").value, target = sel("target").value;
+        if (!pendingExec || pendingExec.jobId !== jobId || pendingExec.file !== file || pendingExec.target !== target) {
+          sel("execInfo").textContent = copy.rePrepareNeeded; sel("doExec").disabled = true; return;
+        }
         sel("doExec").disabled = true;
-        try { const r = await invoke("exec/start", { jobId: currentJob, file: sel("execFile").value, targetConnectionId: sel("target").value }); sel("execInfo").textContent = copy.execStartedTpl.replace("{id}", r.executionId); }
-        catch (e) { sel("execInfo").textContent = String(e.message || e); sel("doExec").disabled = false; }
+        try { const r = await invoke("exec/start", { jobId, file, targetConnectionId: target, confirmToken: pendingExec.token }); pendingExec = null; sel("execInfo").textContent = copy.execStartedTpl.replace("{id}", r.executionId); }
+        catch (e) { pendingExec = null; sel("execInfo").textContent = String(e.message || e); sel("doExec").disabled = false; }
       }
       function onExecProgress(p) { sel("execInfo").textContent = `${copy[p.status] || p.status} ${p.done}/${p.total}` + (p.error ? `\n${p.error}` : ""); }
 

@@ -4,16 +4,16 @@
   "id": "io.github.my2sql",
   "name": "my2sql Binlog Toolkit",
   "icon": "assets/plugin.svg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "cutemolly",
   "description": "MySQL binlog viewer, SQL/rollback generator and flashback executor for DBX.",
-  "source": "https://github.com/liuhr/my2sql",
-  "homepage": "https://github.com/liuhr/my2sql",
+  "source": "https://github.com/cutemolly/dbx-plugin-my2sql",
+  "homepage": "https://github.com/cutemolly/dbx-plugin-my2sql",
   "engines": {
     "dbx": ">=0.6.48",
     "host_api": "^1.0"
   },
-  "permissions": ["host.connections:read", "host.events", "host.storage"],
+  "permissions": ["host.connections:read", "host.events"],
   "entrypoints": {
     "backend": {
       "executable": "bin/my2sql-sidecar",
@@ -88,6 +88,19 @@
           "default": "+08:00",
           "binding": "config",
           "description": "Used to interpret datetime columns and the start/stop time range."
+        },
+        {
+          "key": "tls",
+          "label": "TLS",
+          "type": "select",
+          "default": "off",
+          "binding": "config",
+          "options": [
+            { "value": "off", "label": "Off (plain TCP)" },
+            { "value": "require", "label": "Require (encrypt, certificate not verified)" },
+            { "value": "verify", "label": "Verify (system CA roots, direct TCP)" }
+          ],
+          "description": "Encrypt the MySQL session for metadata queries and the binlog dump. SSH/SOCKS tunnels are provided by DBX itself: the plugin always dials the endpoint after DBX transport layers."
         }
       ]
     },
@@ -133,7 +146,12 @@
             "username": { "label": "复制账号", "description": "需要 REPLICATION SLAVE / REPLICATION CLIENT 权限" },
             "password": { "label": "密码" },
             "server_id": { "label": "伪装从库 server-id", "description": "不能与真实从库冲突" },
-            "timezone": { "label": "binlog 时区 (-tl)", "description": "用于解释 datetime 列与起止时间" }
+            "timezone": { "label": "binlog 时区 (-tl)", "description": "用于解释 datetime 列与起止时间" },
+            "tls": {
+              "label": "TLS",
+              "description": "加密元数据查询与 binlog dump 会话。SSH/SOCKS 隧道由 DBX 本身提供，插件始终拨向隧道转换后的端点。",
+              "options": { "off": "关闭（明文 TCP）", "require": "强制加密（不校验证书）", "verify": "加密并校验证书（仅直连 TCP）" }
+            }
           }
         },
         "io.github.my2sql.main": {

@@ -10,4 +10,4 @@ directory = "backend"
 binary = "my2sql-sidecar"
 
 [package]
-include = ["assets", "ui"]
+include = ["assets", "ui", "LICENSE", "THIRD_PARTY_NOTICES.md"]

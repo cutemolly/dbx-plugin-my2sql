@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -23,6 +25,32 @@ type ConnectionSpec struct {
 	Timezone    string
 	RuntimeHost string
 	RuntimePort int
+	// Tls is the connection-form TLS mode: "" / "off" (plain), "require"
+	// (encrypt without pinning the certificate) or "verify" (chain + hostname
+	// against the system trust store).
+	Tls string
+}
+
+// TLSConfig maps the form's tls mode onto a crypto/tls config. "require"
+// mirrors go-sql-driver's tls=true behaviour (encrypted transport, certificate
+// not verified); "verify" checks the chain and the stored host name against
+// the system roots. Returns nil for plain mode, never a zero-value config.
+func (c *ConnectionSpec) TLSConfig() (*tls.Config, error) {
+	switch strings.ToLower(strings.TrimSpace(c.Tls)) {
+	case "", "off", "false", "none":
+		return nil, nil
+	case "require":
+		// #nosec G402 -- InsecureSkipVerify is the documented user choice here,
+		// identical to MySQL's `tls=true` and upstream my2sql's --use-ssl.
+		return &tls.Config{InsecureSkipVerify: true}, nil
+	case "verify", "verify-ca", "strict":
+		// Verify against system roots. ServerName is only meaningful for direct
+		// TCP; over a DBX tunnel the endpoint is localhost and MySQL's
+		// certificate rarely matches, which is what "require" is for.
+		return &tls.Config{ServerName: c.Host}, nil
+	default:
+		return nil, fmt.Errorf("unknown tls mode %q: use off, require or verify", c.Tls)
+	}
 }
 
 // Endpoint returns the address the sidecar should actually connect to.

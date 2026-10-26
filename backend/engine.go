@@ -5,10 +5,12 @@ import (
 	"fmt"
 )
 
-// Engine is the extension point for the binlog parser. The real my2sql kernel
-// (github.com/liuhr/my2sql, built on siddontang/go-mysql) is vendored here in
-// milestone M2; the contract below is stable so the UI, job lifecycle and the
-// rollback executor can be built and tested against it now.
+// Engine is the extension point for the binlog parser. The real parser lives
+// in engine_my2sql.go (build-tag `my2sql`) and is an independent Go
+// implementation of the my2sql binlog-to-SQL algorithm on top of
+// go-mysql-org/go-mysql; no upstream my2sql source is copied or vendored. The
+// contract below is stable so the UI, job lifecycle and the rollback executor
+// can be built and tested against it.
 //
 // Implementations must:
 //   - honor ctx cancellation (job/stop) and return promptly;

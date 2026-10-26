@@ -69,6 +69,8 @@ version instead.
 
 ## License
 
-MIT (see [LICENSE](LICENSE)). Upstream inspiration
-[liuhr/my2sql](https://github.com/liuhr/my2sql) is licensed under MPL-1.0; this
-codebase is an independent Go reimplementation and does not copy its source.
+MIT (see [LICENSE](LICENSE)). This codebase is an independent Go
+reimplementation of the my2sql binlog-to-SQL workflow and does not copy the
+source of the [liuhr/my2sql](https://github.com/liuhr/my2sql) tool that inspired
+it; that upstream project is likewise MIT-licensed. Third-party Go dependencies
+and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

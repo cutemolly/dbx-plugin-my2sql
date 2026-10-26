@@ -397,7 +397,10 @@ func (s *parseState) sink(name, path, kind string, forward bool) (*sinkFile, err
 	if w, ok := registry[name]; ok {
 		return w, nil
 	}
-	f, err := os.Create(path)
+	// 0600: generated SQL files contain full row data from the binlog; they are
+	// only ever read back by this sidecar (previews) or copied by the user, so
+	// they must not be world-readable on shared machines.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -444,6 +447,10 @@ func syncerLogger() *golog.Logger {
 
 func (s *parseState) runOnline() error {
 	host, port := splitEndpoint(s.spec.Endpoint())
+	tlsCfg, tlsErr := s.spec.TLSConfig()
+	if tlsErr != nil {
+		return tlsErr
+	}
 	cfg := replication.BinlogSyncerConfig{
 		ServerID:   uint32(s.spec.ServerID),
 		Flavor:     "mysql",
@@ -454,6 +461,7 @@ func (s *parseState) runOnline() error {
 		ParseTime:  true,
 		UseDecimal: true,
 		Logger:     syncerLogger(),
+		TLSConfig:  tlsCfg,
 	}
 	syncer := replication.NewBinlogSyncer(cfg)
 	defer syncer.Close()
@@ -711,7 +719,7 @@ func (s *parseState) flush() {
 
 func (s *parseState) writeStats() {
 	path := filepath.Join(s.outDir, "my2sql.stats.csv")
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return
 	}

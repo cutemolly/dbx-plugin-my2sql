@@ -67,9 +67,9 @@ func (ts *TableSchema) keyColumns(o GenOptions) []string {
 
 func (ts *TableSchema) qualifiedName(o GenOptions) string {
 	if o.DoNotPrefixDB {
-		return "`" + ts.Table + "`"
+		return quoteIdent(ts.Table)
 	}
-	return "`" + ts.Schema + "`.`" + ts.Table + "`"
+	return quoteIdent(ts.Schema) + "." + quoteIdent(ts.Table)
 }
 
 func (ts *TableSchema) indexOf(col string) int {
@@ -140,7 +140,7 @@ func (ts *TableSchema) insertStmt(vals []any, o GenOptions, isForward bool) stri
 		if skip[i] {
 			continue
 		}
-		names = append(names, "`"+c+"`")
+		names = append(names, quoteIdent(c))
 		placeholders = append(placeholders, FormatValue(vals[i]))
 	}
 	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);",
@@ -167,12 +167,12 @@ func (ts *TableSchema) updateStmt(before, after []any, o GenOptions, reverse boo
 	var set []string
 	if o.FullColumns {
 		for i, c := range ts.Columns {
-			set = append(set, "`"+c+"` = "+FormatValue(setVals[i]))
+			set = append(set, quoteIdent(c)+" = "+FormatValue(setVals[i]))
 		}
 	} else {
 		for i, c := range ts.Columns {
 			if !sameValue(before[i], after[i]) {
-				set = append(set, "`"+c+"` = "+FormatValue(setVals[i]))
+				set = append(set, quoteIdent(c)+" = "+FormatValue(setVals[i]))
 			}
 		}
 	}
@@ -192,9 +192,9 @@ func (ts *TableSchema) whereClause(keyCols []string, vals []any) string {
 		}
 		v := vals[i]
 		if v == nil {
-			parts = append(parts, "`"+name+"` IS NULL")
+			parts = append(parts, quoteIdent(name)+" IS NULL")
 		} else {
-			parts = append(parts, "`"+name+"` = "+FormatValue(v))
+			parts = append(parts, quoteIdent(name)+" = "+FormatValue(v))
 		}
 	}
 	return strings.Join(parts, " AND ")
@@ -248,6 +248,13 @@ func FormatValue(v any) string {
 		// Decimals arrive as string already; anything else is stringified safely.
 		return quote(fmt.Sprint(v))
 	}
+}
+
+// quoteIdent wraps a MySQL identifier in backticks, doubling any embedded
+// backtick per MySQL's escaping rules. Names that themselves contain a
+// backtick would otherwise break out of the quoted form and corrupt the SQL.
+func quoteIdent(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
 // quote produces a single-quoted MySQL string literal with standard escaping.

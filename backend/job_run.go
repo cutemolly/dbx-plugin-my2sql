@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -149,6 +150,12 @@ func (m *JobManager) Snapshot(id string) (map[string]any, error) {
 	return out, nil
 }
 
+// validJobID mirrors exactly what nextID() generates (UTC timestamp + serial).
+// The job id doubles as a directory name under <data>/jobs/, so anything with
+// dots or path separators must never reach the filesystem layer — a hostile
+// UI or script must not be able to traverse out of jobs/ with ".." segments.
+var validJobID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
 // jobOutputDir creates DBX_PLUGIN_DATA_DIR/jobs/<id>. Bulk output stays on the
 // sidecar filesystem; the UI only ever sees file names and bounded previews.
 // The environment variable is the host contract itself; reading it directly
@@ -158,7 +165,16 @@ func jobOutputDir(id string) (string, error) {
 	if base == "" {
 		return "", errors.New("plugin data directory is not set; running outside a DBX host")
 	}
-	dir := filepath.Join(base, "jobs", id)
+	if !validJobID.MatchString(id) {
+		return "", fmt.Errorf("invalid jobId: must match [A-Za-z0-9_-]{1,64}")
+	}
+	root := filepath.Join(base, "jobs")
+	dir := filepath.Join(root, id)
+	// Belt and braces: the id must land as a direct child of jobs/ even if the
+	// pattern above is ever widened.
+	if filepath.Dir(dir) != root || id == "." || id == ".." {
+		return "", fmt.Errorf("invalid jobId")
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}

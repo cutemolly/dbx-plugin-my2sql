@@ -25,6 +25,20 @@ func openDB(ctx context.Context, spec *ConnectionSpec) (*sql.DB, error) {
 	cfg.ReadTimeout = 30 * time.Second
 	cfg.WriteTimeout = 30 * time.Second
 	cfg.Params = map[string]string{"time_zone": "'+00:00'"}
+	tlsCfg, err := spec.TLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	if tlsCfg != nil {
+		// go-sql-driver resolves TLS by registered name; scope one entry per
+		// connection so concurrent opens of different specs cannot overwrite
+		// each other's mode.
+		tlsName := "my2sql-" + spec.ID
+		if err := mysqldriver.RegisterTLSConfig(tlsName, tlsCfg); err != nil {
+			return nil, err
+		}
+		cfg.TLSConfig = tlsName
+	}
 
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {

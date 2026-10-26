@@ -14,8 +14,7 @@
   ],
   "permissions": [
     "host.connections:read",
-    "host.events",
-    "host.storage"
+    "host.events"
   ],
   "source": "https://github.com/cutemolly/dbx-plugin-my2sql/tree/v1.0.0",
   "homepage": "https://github.com/cutemolly/dbx-plugin-my2sql",
