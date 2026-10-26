@@ -1,0 +1,10 @@
+dist/
+.dbx-dev/
+node_modules/
+backend/my2sql-sidecar
+backend/my2sql-sidecar.exe
+backend/my2sql
+*.dbxp
+*.artifact.json
+.DS_Store
+__pycache__/

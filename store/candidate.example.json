@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.my2sql",
+  "publisher": "my2sql",
+  "version": "1.0.0",
+  "name": "my2sql Binlog Toolkit",
+  "description": "MySQL binlog viewer, SQL/rollback generator and flashback executor for DBX.",
+  "icon": "https://raw.githubusercontent.com/YOUR_HANDLE/dbx-plugin-my2sql/main/assets/plugin.svg",
+  "tags": ["mysql", "binlog", "rollback", "dba"],
+  "permissions": ["host.connections:read", "host.events", "host.storage"],
+  "source": "https://github.com/YOUR_HANDLE/dbx-plugin-my2sql/tree/v1.0.0",
+  "homepage": "https://github.com/YOUR_HANDLE/dbx-plugin-my2sql",
+  "license": "MIT",
+  "releaseNotes": "Initial release: online (fake-replica) and offline binlog parsing, rollback/raw SQL and DML/big-transaction stats, and gated rollback execution.",
+  "localizations": {
+    "zh-CN": {
+      "name": "my2sql Binlog 工具",
+      "description": "MySQL binlog 查看、SQL/回滚生成与闪回执行工具。"
+    }
+  },
+  "targets": [
+    { "target": "darwin-arm64", "url": "https://github.com/YOUR_HANDLE/dbx-plugin-my2sql/releases/download/v1.0.0/io.github.my2sql-1.0.0-darwin-arm64.dbxp", "sha256": "<64 hex of unsigned candidate>", "size": 0 },
+    { "target": "linux-x64", "url": "https://github.com/YOUR_HANDLE/dbx-plugin-my2sql/releases/download/v1.0.0/io.github.my2sql-1.0.0-linux-x64.dbxp", "sha256": "<64 hex of unsigned candidate>", "size": 0 },
+    { "target": "linux-arm64", "url": "https://github.com/YOUR_HANDLE/dbx-plugin-my2sql/releases/download/v1.0.0/io.github.my2sql-1.0.0-linux-arm64.dbxp", "sha256": "<64 hex of unsigned candidate>", "size": 0 },
+    { "target": "windows-x64", "url": "https://github.com/YOUR_HANDLE/dbx-plugin-my2sql/releases/download/v1.0.0/io.github.my2sql-1.0.0-windows-x64.dbxp", "sha256": "<64 hex of unsigned candidate>", "size": 0 }
+  ]
+}

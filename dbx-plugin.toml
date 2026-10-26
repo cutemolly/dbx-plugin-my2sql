@@ -1,0 +1,13 @@
+schema_version = 1
+
+# dbx-plugin dev builds the sidecar with `go build -trimpath` in this directory.
+# To exercise the real binlog kernel, export GOFLAGS="-tags=my2sql" before
+# `dbx-plugin dev` (go inherits GOFLAGS); the default build stays the
+# dependency-free placeholder engine.
+[backend]
+language = "go"
+directory = "backend"
+binary = "my2sql-sidecar"
+
+[package]
+include = ["assets", "ui"]

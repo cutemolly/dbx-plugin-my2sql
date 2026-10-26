@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>my2sql</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        /* Host tokens are shadcn-named (--color-background/-foreground/-muted
+           is a FILL, -muted-foreground is gray TEXT). Fallbacks only apply
+           outside a DBX host. */
+        --bg: var(--color-background, #ffffff);
+        --panel: var(--color-card, #f6f7f9);
+        --fill: var(--color-muted, #f1f5f9);
+        --border: var(--color-border, #e3e6ea);
+        --text: var(--color-foreground, #1c2025);
+        --muted: var(--color-muted-foreground, #6b7280);
+        --accent: var(--color-primary, #0f766e);
+        --accent-fg: var(--color-primary-foreground, #ffffff);
+        --danger: var(--color-destructive, #b91c1c);
+        --ok: var(--color-success, #15803d);
+        font-family: var(--font-sans, Inter, ui-sans-serif, system-ui, sans-serif);
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font-size: 13px; }
+      main { max-width: 1080px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+      .card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: var(--bg); }
+      .card h2 { margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+      .row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+      .field { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+      .field label { font-size: 11px; color: var(--muted); }
+      .field > input, .field > select { width: 100%; }
+      select, input[type="text"], input[type="number"], input[type="datetime-local"] {
+        border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; font: inherit; background: var(--bg); color: var(--text); outline: none;
+      }
+      select:focus, input:focus { border-color: var(--accent); }
+      .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .seg button { border: 0; background: var(--bg); color: var(--text); padding: 7px 12px; cursor: pointer; font: inherit; }
+      .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+      .btn { border: 1px solid var(--border); background: var(--fill); color: var(--text); border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; font-weight: 600; }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+      .btn.danger { background: var(--danger); border-color: var(--danger); color: var(--accent-fg); }
+      .btn:disabled { opacity: .5; cursor: not-allowed; }
+      .check { display: inline-flex; align-items: center; gap: 6px; }
+      .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--fill); color: var(--muted); border: 1px solid var(--border); }
+      .badge.ok { color: var(--ok); } .badge.err { color: var(--danger); } .badge.run { color: var(--accent); }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+      details.adv { border: 1px solid var(--border); border-radius: 10px; padding: 0 14px; }
+      details.adv > summary { cursor: pointer; padding: 12px 0; font-weight: 700; color: var(--muted); list-style: none; }
+      details.adv[open] > summary { border-bottom: 1px solid var(--border); }
+      details.adv[open] > .grid, details.adv[open] > .row { padding: 12px 0; }
+      .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+      .tabs button { border: 0; background: none; padding: 9px 14px; cursor: pointer; font: inherit; color: var(--muted); border-bottom: 2px solid transparent; }
+      .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 700; }
+      .mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; white-space: pre; overflow: auto; background: var(--fill); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 320px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+      th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+      .files { list-style: none; margin: 0; padding: 0; }
+      .files li { display: flex; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
+      .files li:hover, .files li.sel { background: var(--fill); }
+      .muted { color: var(--muted); } .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <div class="row">
+          <div class="field" style="flex: 1; min-width: 220px;">
+            <label data-i="source">Source connection</label>
+            <select id="source"></select>
+          </div>
+          <div class="field">
+            <label data-i="mode">Mode</label>
+            <div class="seg" id="mode">
+              <button data-v="repl" aria-pressed="true" data-i="modeRepl">Online (repl)</button>
+              <button data-v="file" aria-pressed="false" data-i="modeFile">Offline (file)</button>
+            </div>
+          </div>
+          <div class="field">
+            <label data-i="workType">Task</label>
+            <div class="seg" id="workType">
+              <button data-v="rollback" aria-pressed="true">Rollback</button>
+              <button data-v="2sql">Raw SQL</button>
+              <button data-v="stats">DML stats</button>
+            </div>
+          </div>
+          <button class="btn" id="precheck" data-i="precheck">Pre-check</button>
+          <span class="badge" id="precheckBadge">-</span>
+        </div>
+        <div class="hint" id="connectHint" hidden></div>
+      </div>
+
+      <div class="card">
+        <h2 data-i="range">Range</h2>
+        <div class="row">
+          <div class="field">
+            <label data-i="locator">Locate by</label>
+            <div class="seg" id="locator">
+              <button data-v="datetime" aria-pressed="true" data-i="byTime">Time</button>
+              <button data-v="pos" aria-pressed="false" data-i="byPos">Position</button>
+            </div>
+          </div>
+          <div class="field"><label data-i="startFile">Start file</label>
+            <div class="row" style="gap:6px;"><select id="startFile"></select><button class="btn" id="refreshFiles" data-i="refresh">Load</button><input type="text" id="startFileText" hidden placeholder="mysql-bin.000123" /></div>
+          </div>
+          <div class="field" id="offlinePath" hidden><label data-i="localFile">Local binlog file</label><input type="text" id="localBinlogFile" placeholder="/var/lib/mysql/mysql-bin.000123 | /var/lib/mysql" /></div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div class="field" data-loc="datetime"><label data-i="start">Start</label><input type="datetime-local" id="startDatetime" step="1" /></div>
+          <div class="field" data-loc="datetime"><label data-i="stop">Stop</label><input type="datetime-local" id="stopDatetime" step="1" /></div>
+          <div class="field" data-loc="pos" hidden><label data-i="startPos">Start pos</label><input type="number" id="startPos" value="4" /></div>
+          <div class="field" data-loc="pos" hidden><label data-i="stopPos">Stop pos</label><input type="number" id="stopPos" value="0" /></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 data-i="filter">Filters</h2>
+        <div class="row">
+          <div class="field"><label data-i="databases">Databases</label><input type="text" id="databases" placeholder="db1,db2" /></div>
+          <div class="field"><label data-i="tables">Tables</label><input type="text" id="tables" placeholder="t1,t2" /></div>
+          <div class="field">
+            <label data-i="sqlTypes">SQL types</label>
+            <div class="row" style="gap:12px;">
+              <label class="check"><input type="checkbox" class="sqlType" value="insert" checked />INSERT</label>
+              <label class="check"><input type="checkbox" class="sqlType" value="update" checked />UPDATE</label>
+              <label class="check"><input type="checkbox" class="sqlType" value="delete" checked />DELETE</label>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <div class="field" style="min-width:260px;flex:1 1 260px;"><label data-i="pickDb">Browse database</label><input type="text" id="dbPick" list="dbDl" autocomplete="off" spellcheck="false" /><datalist id="dbDl"></datalist></div>
+          <div class="field" style="min-width:260px;flex:1 1 260px;"><label data-i="pickTable">Browse table</label><input type="text" id="tablePick" list="tableDl" autocomplete="off" spellcheck="false" /><datalist id="tableDl"></datalist></div>
+          <button class="btn" id="previewSchema" data-i="previewSchema">Columns &amp; keys</button>
+          <button class="btn" id="addToFilter" data-i="addToFilter">Add to filters</button>
+        </div>
+        <div class="hint" id="pickHintEl" data-i="pickHint">Browse fields query the my2sql connection currently open in DBX, not the job source dropdown. Add to filters writes into the fields above.</div>
+        <div id="schemaBody" style="margin-top:10px;"></div>
+      </div>
+
+      <details class="adv">
+        <summary data-i="advanced">Advanced options</summary>
+        <div class="grid">
+          <label class="check"><input type="checkbox" id="filePerTable" /> <span data-i="filePerTable">File per table</span></label>
+          <label class="check"><input type="checkbox" id="addExtraInfo" /> <span data-i="addExtraInfo">Add SQL comments</span></label>
+          <label class="check"><input type="checkbox" id="ignorePrimaryKeyForInsert" /> <span data-i="ignorePk">INSERT without PK</span></label>
+          <label class="check"><input type="checkbox" id="fullColumns" /> <span data-i="fullColumns">Full columns</span></label>
+          <label class="check"><input type="checkbox" id="useUniqueKey" /> <span data-i="useUnique">Prefer unique key</span></label>
+        </div>
+        <div class="row" style="padding-bottom:12px;">
+          <div class="field"><label data-i="threads">Threads</label><input type="number" id="threads" value="8" min="1" max="64" /></div>
+          <div class="field"><label data-i="bigTrx">Big-trx row limit</label><input type="number" id="bigTrxRowLimit" value="500" /></div>
+          <div class="field"><label data-i="longTrx">Long-trx seconds</label><input type="number" id="longTrxSeconds" value="300" /></div>
+        </div>
+      </details>
+
+      <div class="card">
+        <div class="row">
+          <button class="btn primary" id="start" data-i="startBtn">Start analysis</button>
+          <button class="btn" id="stop" disabled data-i="stop_btn">Stop</button>
+          <span class="badge" id="jobBadge" data-i="idle">idle</span>
+          <span class="muted" id="jobInfo"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="tabs" role="tablist">
+          <button role="tab" data-tab="stats" aria-selected="true" data-i="tabStats">Stats</button>
+          <button role="tab" data-tab="files" aria-selected="false" data-i="tabFiles">SQL files</button>
+          <button role="tab" data-tab="exec" aria-selected="false" data-i="tabExec">Execute rollback</button>
+        </div>
+        <div style="padding-top:12px;">
+          <section id="tab-stats"><div class="muted" id="statsEmpty" data-i="noResult">No result yet.</div><div id="statsBody" hidden></div></section>
+          <section id="tab-files" hidden>
+            <div class="row" style="align-items:flex-start;gap:16px;">
+              <ul class="files" id="fileList" style="flex:0 0 320px;"></ul>
+              <div class="mono" id="preview" style="flex:1;min-height:120px;">-</div>
+            </div>
+            <div class="row" style="margin-top:10px;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span class="muted" data-i="pathLabel">Output path</span>
+              <code id="outPath" class="mono" style="flex:1;min-width:200px;user-select:all;">-</code>
+              <button class="btn" id="copyFile" data-i="copyFile">Copy file path</button>
+              <button class="btn" id="copyDir" data-i="copyDir">Copy folder</button>
+              <span class="muted" id="copyHint" data-i="copyHint"></span>
+            </div>
+          </section>
+          <section id="tab-exec" hidden>
+            <div class="row">
+              <div class="field"><label data-i="execFile">Rollback file</label><select id="execFile"></select></div>
+              <div class="field" style="min-width:220px;"><label data-i="target">Target connection</label><select id="target"></select></div>
+              <button class="btn" id="prepare" data-i="prepare">Prepare</button>
+              <button class="btn danger" id="doExec" disabled data-i="doExec">Confirm &amp; execute</button>
+            </div>
+            <div class="mono" id="execInfo" style="margin-top:10px;">-</div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const PROVIDER = "io.github.my2sql.source";
+      const T = {
+        en: {
+          source: "Source connection", mode: "Mode", modeRepl: "Online (repl)", modeFile: "Offline (file)", workType: "Task",
+          precheck: "Pre-check", range: "Range", locator: "Locate by", byTime: "Time", byPos: "Position", startFile: "Start file",
+          refresh: "Load", localFile: "Local binlog file or directory", start: "Start", stop: "Stop", startPos: "Start pos", stopPos: "Stop pos",
+          filter: "Filters", databases: "Databases", tables: "Tables", sqlTypes: "SQL types", advanced: "Advanced options",
+          filePerTable: "File per table", addExtraInfo: "Add SQL comments", ignorePk: "INSERT without PK", fullColumns: "Full columns",
+          useUnique: "Prefer unique key", threads: "Threads", bigTrx: "Big-trx row limit", longTrx: "Long-trx seconds",
+          startBtn: "Start analysis", stop_btn: "Stop", tabStats: "Stats", tabFiles: "SQL files", tabExec: "Execute rollback",
+          noResult: "No result yet.", emptyOut: "No matching output.", diagTpl: "Scanned {events} binlog events · {rows} matched rows · {trx} transactions. If matched is 0: check the time window (incl. timezone), db/table filters (TDSQL physical names look like db@table@shard) and the SQL type checkboxes.", execFile: "Rollback file", target: "Target connection", prepare: "Prepare", doExec: "Confirm & execute",
+          openConn: "Open this workbench from a saved my2sql connection so DBX connects it.", noSource: "(no my2sql connection)",
+          starting: "starting…", running: "running", done: "done", failed: "failed", stopped: "stopped", connecting: "connecting…", parsing: "parsing", initiating: "initiating…",
+          pickDb: "Browse database", pickTable: "Browse table", previewSchema: "Columns & keys", addToFilter: "Add to filters",
+          pickHint: "Browse fields query the my2sql connection currently OPEN in DBX (independent of the job source dropdown); Add to filters writes into the fields above.",
+          notOpen: "Cannot browse: no my2sql connection is open. Connect one in the connection tree, or open this workbench from the connection (DBX establishes it).",
+          pickBoth: "Fill in at least the browse database or the browse table.", addedTo: "Added to filters:", closeBtn: "Close",
+          schemaPick: "Pick a table to inspect its columns and keys (names come from INFORMATION_SCHEMA).",
+          schemaLoading: "loading…", schemaCol: "Column", schemaKey: "Key", pkTag: "PK", ukTag: "UQ",
+          schemaType: "Type", nullTag: "NULL",
+          schemaWhere: "Rollback WHERE matches on", schemaNoKey: "no key — every column (reliable only with binlog_row_image=FULL)",
+          schemaErr: "cannot read schema",
+          idle: "idle", offlineTag: "(offline)", statements: "statements", notReady: "not ready", error: "error",
+          jobTpl: "job {id}", execStartedTpl: "execution {id} started…",
+          statTable: "Table", statInsert: "Insert", statUpdate: "Update", statDelete: "Delete", statTotal: "Total",
+          executing: "executing",
+          stopping: "stopping…", pathLabel: "Output path", copyFile: "Copy file path", copyDir: "Copy folder", copied: "Copied", noPath: "No output file yet.",
+        },
+        zh: {
+          source: "源连接", mode: "模式", modeRepl: "在线 (repl)", modeFile: "离线 (file)", workType: "任务类型",
+          precheck: "预检查", range: "范围", locator: "定位方式", byTime: "按时间", byPos: "按位点", startFile: "起始文件",
+          refresh: "加载", localFile: "本地 binlog 文件/目录", start: "起", stop: "止", startPos: "起始位点", stopPos: "结束位点",
+          filter: "过滤", databases: "数据库", tables: "表", sqlTypes: "SQL 类型", advanced: "高级选项",
+          filePerTable: "按表分文件", addExtraInfo: "附加 SQL 注释", ignorePk: "INSERT 省略主键", fullColumns: "输出完整列",
+          useUnique: "优先使用唯一键", threads: "线程数", bigTrx: "大事务行数阈值", longTrx: "长事务秒数",
+          startBtn: "开始分析", stop_btn: "停止", tabStats: "统计", tabFiles: "SQL 文件", tabExec: "执行回滚",
+          noResult: "暂无结果。", emptyOut: "无匹配产出。", diagTpl: "已扫描 {events} 个 binlog 事件 · 命中 {rows} 行 · {trx} 个事务。若命中为 0：请检查时间窗（含时区）、库/表过滤（TDSQL 物理表名形如 库@表@分片）与 SQL 类型勾选。", execFile: "回滚文件", target: "目标连接", prepare: "预备", doExec: "确认并执行",
+          openConn: "请从已保存的 my2sql 连接打开此工作台，由 DBX 建立连接。", noSource: "（暂无 my2sql 连接）",
+          starting: "启动中…", running: "运行中", done: "完成", failed: "失败", stopped: "已停止", connecting: "建立复制连接中…", parsing: "解析中", initiating: "任务初始化…",
+          pickDb: "浏览数据库", pickTable: "浏览表", previewSchema: "列与键", addToFilter: "加入过滤",
+          pickHint: "浏览框查询的是 DBX 中已打开的 my2sql 连接（与任务源连接下拉无关）；「加入过滤」写入上方过滤条件。",
+          notOpen: "无法浏览：当前没有已打开的 my2sql 连接。请在连接树中连接该连接，或直接从该连接右键打开工作台（由 DBX 建立连接）。",
+          pickBoth: "请至少填写浏览数据库或浏览表之一。", addedTo: "已加入过滤：", closeBtn: "关闭",
+          schemaPick: "选择一张表即可查看其列与键（列名来自 INFORMATION_SCHEMA）。",
+          schemaLoading: "加载中…", schemaCol: "列", schemaKey: "键", pkTag: "主键", ukTag: "唯一",
+          schemaType: "类型", nullTag: "可空",
+          schemaWhere: "回滚 WHERE 匹配依据", schemaNoKey: "无主键/唯一键 — 使用全部列（仅当 binlog_row_image=FULL 时可靠）",
+          schemaErr: "无法读取表结构",
+          idle: "空闲", offlineTag: "（离线）", statements: "条语句", notReady: "未就绪", error: "错误",
+          jobTpl: "任务 {id}", execStartedTpl: "执行 {id} 已启动…",
+          statTable: "表", statInsert: "Insert", statUpdate: "Update", statDelete: "Delete", statTotal: "合计",
+          executing: "执行中",
+          stopping: "停止中…", pathLabel: "产出路径", copyFile: "复制文件路径", copyDir: "复制所在目录", copied: "已复制", noPath: "暂无产出文件。",
+        },
+      };
+      let copy = T.en, connections = [], currentJob = "", lastFiles = [], lastStats = null, lastOutDir = "", lastFileList = [];
+      // Browse targets the connection DBX currently has OPEN; the source
+      // dropdown only configures job parameters.
+      let browseConnId = "", initCtx = null;
+
+      function lang() {
+        const l = (window.dbxPlugin && window.dbxPlugin.locale) || "en";
+        copy = T[l] || (/^zh/i.test(l) ? T.zh : null) || T.en;
+        document.documentElement.lang = l;
+        document.querySelectorAll("[data-i]").forEach((el) => { const k = el.getAttribute("data-i"); if (copy[k]) el.textContent = copy[k]; });
+      }
+
+      function sel(id) { return document.getElementById(id); }
+      function segValue(groupId) { const b = sel(groupId).querySelector('button[aria-pressed="true"]'); return b ? b.dataset.v : ""; }
+      function bindSeg(groupId, onChange) {
+        sel(groupId).addEventListener("click", (e) => {
+          const b = e.target.closest("button"); if (!b) return;
+          sel(groupId).querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+          if (onChange) onChange(b.dataset.v);
+        });
+      }
+      function checkedList(cls) { return Array.from(document.querySelectorAll("." + cls + ":checked")).map((c) => c.value); }
+      function badges(id, text, kind) { const b = sel(id); b.textContent = copy[text] || text; b.className = "badge " + (kind || ""); }
+
+      async function invoke(method, params, timeoutMs) {
+        return window.dbxPlugin.invoke(method, params || {}, timeoutMs ? { timeoutMs } : undefined);
+      }
+
+      async function renderConnections() {
+        let all = [];
+        try {
+          if (window.dbxPlugin.connections && window.dbxPlugin.connections.getAll) all = await window.dbxPlugin.connections.getAll();
+          else if (window.dbxPlugin.getConnections) all = await window.dbxPlugin.getConnections();
+        } catch (e) { all = []; }
+        connections = (all || []).filter((c) => c.providerId === PROVIDER);
+        const opts = connections.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.isConnected ? "" : " " + copy.offlineTag}</option>`);
+        const html = opts.join("") || `<option value="">${copy.noSource || "(none)"}</option>`;
+        const keepSource = sel("source").value, keepTarget = sel("target").value;
+        sel("source").innerHTML = html;
+        sel("target").innerHTML = html;
+        if (connections.some((c) => c.id === keepSource)) sel("source").value = keepSource;
+        if (connections.some((c) => c.id === keepTarget)) sel("target").value = keepTarget;
+      }
+
+      function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+      function pickBrowseConn() {
+        if (initCtx && initCtx.connectionId && connections.some((c) => c.id === initCtx.connectionId && c.isConnected)) return initCtx.connectionId;
+        const open = connections.find((c) => c.isConnected);
+        return open ? open.id : "";
+      }
+
+      async function refreshDatabases() {
+        if (!browseConnId) browseConnId = pickBrowseConn();
+        const id = browseConnId;
+        sel("dbPick").value = ""; sel("tablePick").value = ""; sel("dbDl").innerHTML = ""; sel("tableDl").innerHTML = ""; sel("schemaBody").innerHTML = "";
+        if (!id) {
+          if (connections.length) { sel("connectHint").textContent = copy.notOpen; sel("connectHint").hidden = false; }
+          else sel("connectHint").hidden = true;
+          return;
+        }
+        try {
+          const dbs = await invoke("meta/databases", { connectionId: id }, 15000);
+          const list = dbs.databases || [];
+          sel("dbDl").innerHTML = list.map((d) => `<option value="${escapeHtml(d)}"></option>`).join("");
+          sel("connectHint").hidden = true;
+          const nm = connections.find((c) => c.id === id);
+          sel("pickHintEl").textContent = copy.pickHint + (nm ? "（" + nm.name + "）" : "");
+          if (list.length) await loadTables();
+        } catch (e) {
+          // meta RPC needs an open connection; DBX only opens it when the
+          // workbench is launched from the connection itself.
+          sel("connectHint").textContent = copy.notOpen + "（" + String(e.message || e) + "）";
+          sel("connectHint").hidden = false;
+        }
+      }
+
+      async function loadTables() {
+        const id = browseConnId, db = sel("dbPick").value.trim();
+        sel("tableDl").innerHTML = ""; sel("schemaBody").innerHTML = "";
+        if (!id || !db) return;
+        try {
+          const r = await invoke("meta/tables", { connectionId: id, database: db }, 20000);
+          sel("tableDl").innerHTML = (r.tables || []).map((t) => `<option value="${escapeHtml(t)}"></option>`).join("");
+        } catch (e) { sel("tableDl").innerHTML = ""; }
+      }
+
+      async function doPreviewSchema() {
+        const id = browseConnId, db = sel("dbPick").value, table = sel("tablePick").value;
+        if (!id || !db || !table) { sel("schemaBody").innerHTML = `<span class="muted">${copy.schemaPick}</span>`; return; }
+        sel("schemaBody").innerHTML = `<span class="muted">${copy.schemaLoading}</span>`;
+        try {
+          const s = await invoke("schema/columns", { connectionId: id, database: db, table }, 20000);
+          renderSchema(s);
+        } catch (e) {
+          sel("schemaBody").innerHTML = `<span class="badge err">${copy.schemaErr}</span> <button class="btn" id="schemaClose" style="padding:3px 10px;font-size:11px;">${copy.closeBtn}</button><div class="hint">${escapeHtml(String(e.message || e))}</div>`;
+        }
+      }
+
+      function renderSchema(s) {
+        const pk = new Set(s.primaryKey || []);
+        const uqCols = new Set();
+        (s.uniqueKeys || []).forEach((k) => k.forEach((c) => uqCols.add(c)));
+        const rows = (s.columns || []).map((c, i) => {
+          const tags = [];
+          if (pk.has(c)) tags.push(`<span class="badge ok">${copy.pkTag}</span>`);
+          if (uqCols.has(c)) tags.push(`<span class="badge run">${copy.ukTag}</span>`);
+          if (s.nullable && s.nullable[i]) tags.push(`<span class="badge">${copy.nullTag}</span>`);
+          const type = (s.columnTypes && s.columnTypes[i]) || "";
+          return `<tr><td class="mono" style="background:none;border:0;padding:4px 10px;">${escapeHtml(c)}</td><td class="muted">${escapeHtml(type)}</td><td>${tags.join(" ") || ""}</td></tr>`;
+        }).join("");
+        const whereDesc = (s.primaryKey || []).length
+          ? "`" + s.primaryKey.join("`, `") + "`"
+          : ((s.uniqueKeys && s.uniqueKeys.length) ? "`" + s.uniqueKeys[0].join("`, `") + "` (" + copy.useUnique + ")" : copy.schemaNoKey);
+        sel("schemaBody").innerHTML =
+          `<div class="hint" style="display:flex;justify-content:space-between;align-items:center;"><span>${escapeHtml(s.schema)}.${escapeHtml(s.table)} · ${(s.columns || []).length} ${copy.schemaCol.toLowerCase()}</span><button class="btn" id="schemaClose" style="padding:3px 10px;font-size:11px;">${copy.closeBtn}</button></div>` +
+          `<table style="margin-top:6px;"><thead><tr><th>${copy.schemaCol}</th><th>${copy.schemaType}</th><th>${copy.schemaKey}</th></tr></thead><tbody>${rows}</tbody></table>` +
+          `<div class="hint">${copy.schemaWhere}: ${escapeHtml(whereDesc)}</div>`;
+      }
+
+      function addToFilter() {
+        const db = sel("dbPick").value.trim(), table = sel("tablePick").value.trim();
+        if (!db && !table) { sel("schemaBody").innerHTML = `<span class="badge err">${copy.pickBoth}</span>`; return; }
+        if (db) { const dset = csv("databases"); if (dset.length && !dset.includes(db)) sel("databases").value = dset.join(",") + "," + db; else if (!dset.length) sel("databases").value = db; }
+        if (table) { const tset = csv("tables"); const q = db + "." + table; if (!tset.includes(table) && !tset.includes(q)) sel("tables").value = (tset.length ? tset.join(",") + "," : "") + table; }
+        const what = [db, table].filter(Boolean).join(".");
+        sel("schemaBody").innerHTML = `<span class="badge ok">${copy.addedTo} ${escapeHtml(what)}</span>`;
+      }
+
+      async function doPrecheck() {
+        const id = sel("source").value; if (!id) return;
+        badges("precheckBadge", "…", "run");
+        try {
+          const r = await invoke("binlog/precheck", { connectionId: id }, 20000);
+          if (r.ok) badges("precheckBadge", "OK " + (r.version || ""), "ok");
+          else badges("precheckBadge", (r.problems || []).join("; ") || copy.notReady, "err");
+          if ((r.warnings || []).length) sel("connectHint").textContent = r.warnings.join(" ");
+          sel("connectHint").hidden = !(r.warnings || []).length;
+        } catch (e) { badges("precheckBadge", copy.error, "err"); sel("connectHint").textContent = String(e.message || e); sel("connectHint").hidden = false; }
+      }
+
+      async function refreshFiles() {
+        const id = sel("source").value; if (!id) return;
+        try {
+          const r = await invoke("binlog/list", { connectionId: id }, 20000);
+          sel("startFile").innerHTML = (r.files || []).map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+        } catch (e) { sel("connectHint").textContent = String(e.message || e); sel("connectHint").hidden = false; }
+      }
+
+      function buildOptions() {
+        const loc = segValue("locator");
+        const o = {
+          sourceConnectionId: sel("source").value,
+          mode: segValue("mode"),
+          workType: segValue("workType"),
+          startFile: segValue("mode") === "file" ? sel("startFileText").value.trim() : sel("startFile").value,
+          databases: csv("databases"), tables: csv("tables"), sqlTypes: checkedList("sqlType"),
+          filePerTable: sel("filePerTable").checked, addExtraInfo: sel("addExtraInfo").checked,
+          ignorePrimaryKeyForInsert: sel("ignorePrimaryKeyForInsert").checked, fullColumns: sel("fullColumns").checked,
+          useUniqueKey: sel("useUniqueKey").checked, threads: num("threads"),
+          bigTrxRowLimit: num("bigTrxRowLimit"), longTrxSeconds: num("longTrxSeconds"),
+          localBinlogFile: sel("localBinlogFile").value.trim(),
+        };
+        if (loc === "datetime") { o.startDatetime = sel("startDatetime").value.replace("T", " "); o.stopDatetime = sel("stopDatetime").value.replace("T", " "); }
+        else { o.startPos = num("startPos"); o.stopPos = num("stopPos"); }
+        return o;
+      }
+      function csv(id) { return sel(id).value.split(",").map((s) => s.trim()).filter(Boolean); }
+      function num(id) { return parseInt(sel(id).value, 10) || 0; }
+
+      // Wipe every result surface so a new analysis never renders on top of the
+      // previous job's stats/files. Each job has its own outDir + counters on the
+      // backend, but the UI only refreshes them on job/done; without this reset a
+      // long-running (online) job leaves the last job's output on screen, which
+      // reads as "multiple analyses merged into one task".
+      function resetResults() {
+        lastFiles = []; lastStats = null; lastOutDir = ""; lastFileList = [];
+        sel("statsBody").hidden = true; sel("statsBody").innerHTML = "";
+        sel("statsEmpty").hidden = false; sel("statsEmpty").textContent = copy.noResult;
+        sel("fileList").innerHTML = ""; sel("preview").textContent = "-";
+        sel("execFile").innerHTML = `<option value="">-</option>`;
+        sel("outPath").textContent = "-"; sel("copyHint").textContent = "";
+        switchTab("stats");
+      }
+      async function startJob() {
+        resetResults();
+        badges("jobBadge", "starting", "run"); currentJob = ""; sel("stop").disabled = false; sel("start").disabled = true;
+        try {
+          const r = await invoke("job/start", buildOptions());
+          currentJob = r.jobId; sel("jobInfo").textContent = copy.jobTpl.replace("{id}", r.jobId);
+        } catch (e) { badges("jobBadge", "failed", "err"); sel("jobInfo").textContent = String(e.message || e); sel("stop").disabled = true; sel("start").disabled = false; }
+      }
+      async function stopJob() {
+        if (!currentJob) { sel("jobInfo").textContent = copy.noResult; return; }
+        badges("jobBadge", "stopping", "run");
+        try { await invoke("job/stop", { jobId: currentJob }); }
+        catch (e) { badges("jobBadge", "failed", "err"); sel("jobInfo").textContent = String(e.message || e); }
+      }
+
+      function onProgress(p) {
+        if (p.jobId !== currentJob && currentJob) return;
+        badges("jobBadge", p.stage || "running", "run");
+        sel("jobInfo").textContent = `events=${p.parsedEvents || 0} rows=${p.rows || 0} files=${p.sqlFiles || 0}`;
+      }
+      async function onDone(res) {
+        if (res.jobId !== currentJob) return;
+        sel("stop").disabled = true; sel("start").disabled = false;
+        badges("jobBadge", res.status, res.status === "done" ? "ok" : (res.status === "failed" ? "err" : "run"));
+        if (res.error) { sel("jobInfo").textContent = res.error; return; }
+        lastFiles = res.files || [];
+        lastStats = res.stats || null;
+        renderStats(res.stats);
+        await loadFileList(res.jobId);
+      }
+      function diagFrom(stats) {
+        if (!stats) return "";
+        let s = copy.diagTpl.replace("{events}", stats.parsedEvents || 0).replace("{rows}", stats.totalRows || 0).replace("{trx}", stats.totalTrx || 0);
+        if (stats.timeStart) s += " " + stats.timeStart + " → " + stats.timeEnd;
+        return s;
+      }
+
+      function renderStats(stats) {
+        const rows = stats && (stats.perTable || stats.tables);
+        if (!stats || !rows || !rows.length) {
+          sel("statsEmpty").hidden = false; sel("statsBody").hidden = true;
+          sel("statsEmpty").textContent = stats ? copy.noResult + " " + diagFrom(stats) : copy.noResult;
+          return;
+        }
+        sel("statsEmpty").hidden = true; sel("statsBody").hidden = false;
+        const summary = `<div class="hint">rows=${stats.totalRows || 0} · events=${stats.parsedEvents || 0} · trx=${stats.totalTrx || 0} · big-trx=${stats.bigTrx || 0} · long-trx=${stats.longTrx || 0}`
+          + (stats.timeStart ? ` · ${stats.timeStart} → ${stats.timeEnd}` : "") + "</div>";
+        sel("statsBody").innerHTML = summary + `<table style="margin-top:6px;"><thead><tr><th>${copy.statTable}</th><th>${copy.statInsert}</th><th>${copy.statUpdate}</th><th>${copy.statDelete}</th><th>${copy.statTotal}</th></tr></thead><tbody>` +
+          rows.map((t) => `<tr><td>${escapeHtml(t.table)}</td><td>${t.insert || 0}</td><td>${t.update || 0}</td><td>${t.delete || 0}</td><td>${(t.total != null ? t.total : (t.rows || 0))}</td></tr>`).join("") + `</tbody></table>`;
+      }
+      async function loadFileList(jobId) {
+        try {
+          const r = await invoke("job/output/list", { jobId });
+          const files = r.files || [];
+          lastFileList = files;
+          lastOutDir = r.outDir || "";
+          sel("outPath").textContent = lastOutDir || "-";
+          if (!files.length) {
+            sel("fileList").innerHTML = `<li style="display:block;cursor:default;"><span class="muted">${copy.emptyOut}</span><div class="hint" style="margin-top:4px;">${escapeHtml(diagFrom(lastStats))}</div></li>`;
+            sel("execFile").innerHTML = `<option value="">-</option>`;
+            return;
+          }
+          sel("fileList").innerHTML = files.map((f, i) => `<li data-i="${i}" data-n="${escapeHtml(f.name)}" data-p="${escapeHtml(f.path || "")}">${escapeHtml(f.name)}<span class="muted">${f.kind || "sql"}</span></li>`).join("");
+          sel("execFile").innerHTML = files.filter((f) => f.kind === "rollback").map((f) => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join("") || `<option value="">-</option>`;
+          sel("fileList").querySelectorAll("li").forEach((li) => li.addEventListener("click", () => previewFile(jobId, li.dataset.n, li)));
+          const first = sel("fileList").querySelector("li"); if (first) first.click();
+        } catch (e) { sel("fileList").innerHTML = `<li>${escapeHtml(String(e.message || e))}</li>`; }
+      }
+      async function previewFile(jobId, name, li) {
+        sel("fileList").querySelectorAll("li").forEach((x) => x.classList.remove("sel")); if (li) li.classList.add("sel");
+        if (li && li.dataset.p) sel("outPath").textContent = li.dataset.p;
+        try { const p = await invoke("job/output/preview", { jobId, file: name, offset: 0, limit: 500 }); sel("preview").textContent = (p.lines || []).join("\n") + (p.truncated ? `\n… (${p.total} lines total)` : ""); }
+        catch (e) { sel("preview").textContent = String(e.message || e); }
+      }
+      // Copy the shown output path to the system clipboard. host.copy (clipboard
+      // write) is ungated on the DBX host, so no extra permission is required.
+      async function copyPath(text) {
+        const hint = sel("copyHint");
+        const api = window.dbxPlugin;
+        if (!text || text === "-") { hint.textContent = copy.noPath; return; }
+        try {
+          if (api && api.copy) await api.copy(text);
+          else { const el = document.createElement("textarea"); el.value = text; document.body.appendChild(el); el.select(); document.execCommand("copy"); el.remove(); }
+          hint.textContent = copy.copied;
+        } catch (e) { hint.textContent = String(e.message || e); }
+        setTimeout(() => { if (hint.textContent === copy.copied) hint.textContent = ""; }, 2500);
+      }
+      async function prepareExec() {
+        const jobId = currentJob, file = sel("execFile").value, target = sel("target").value;
+        try { const r = await invoke("exec/prepare", { jobId, file, targetConnectionId: target }); sel("execInfo").textContent = `${r.statementCount} ${copy.statements} → ${target}\n\n` + (r.firstStatements || []).join("\n"); sel("doExec").disabled = false; }
+        catch (e) { sel("execInfo").textContent = String(e.message || e); sel("doExec").disabled = true; }
+      }
+      async function doExecute() {
+        sel("doExec").disabled = true;
+        try { const r = await invoke("exec/start", { jobId: currentJob, file: sel("execFile").value, targetConnectionId: sel("target").value }); sel("execInfo").textContent = copy.execStartedTpl.replace("{id}", r.executionId); }
+        catch (e) { sel("execInfo").textContent = String(e.message || e); sel("doExec").disabled = false; }
+      }
+      function onExecProgress(p) { sel("execInfo").textContent = `${copy[p.status] || p.status} ${p.done}/${p.total}` + (p.error ? `\n${p.error}` : ""); }
+
+      function switchTab(name) {
+        document.querySelectorAll('[role="tab"]').forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+        ["stats", "files", "exec"].forEach((t) => { sel("tab-" + t).hidden = t !== name; });
+      }
+
+      window.dbxPlugin.ready.then(async (ctx) => {
+        lang();
+        bindSeg("mode", (v) => {
+          const file = v === "file";
+          sel("offlinePath").hidden = !file;
+          sel("startFile").hidden = file; sel("refreshFiles").hidden = file;
+          sel("startFileText").hidden = !file;
+        });
+        bindSeg("workType"); bindSeg("locator", (v) => document.querySelectorAll("[data-loc]").forEach((el) => { el.hidden = el.dataset.loc !== v; }));
+        sel("precheck").addEventListener("click", doPrecheck);
+        sel("refreshFiles").addEventListener("click", refreshFiles);
+        document.querySelectorAll('[role="tab"]').forEach((t) => t.addEventListener("click", () => switchTab(t.dataset.tab)));
+        sel("dbPick").addEventListener("change", loadTables);
+        sel("tablePick").addEventListener("change", () => { sel("schemaBody").innerHTML = ""; });
+        // Delegated close button for the schema preview (innerHTML is rebuilt per lookup).
+        sel("schemaBody").addEventListener("click", (e) => { if (e.target && e.target.id === "schemaClose") sel("schemaBody").innerHTML = ""; });
+        sel("previewSchema").addEventListener("click", doPreviewSchema);
+        sel("addToFilter").addEventListener("click", addToFilter);
+        sel("start").addEventListener("click", startJob);
+        sel("stop").addEventListener("click", stopJob);
+        sel("copyFile").addEventListener("click", () => copyPath(sel("outPath").textContent));
+        sel("copyDir").addEventListener("click", () => copyPath(lastOutDir));
+        sel("prepare").addEventListener("click", prepareExec);
+        sel("doExec").addEventListener("click", doExecute);
+
+        await renderConnections();
+        // Context from a connection/table menu pre-selects and pre-fills filters.
+        if (ctx && ctx.connectionId && connections.some((c) => c.id === ctx.connectionId)) { sel("source").value = ctx.connectionId; }
+        if (ctx && ctx.table) { sel("tables").value = ctx.table; if (ctx.database) sel("databases").value = ctx.database; }
+        initCtx = ctx || null;
+        browseConnId = pickBrowseConn();
+        await refreshDatabases();
+        // Prefer the context menu's database/table for the schema preview too.
+        if (ctx && ctx.database) {
+          sel("dbPick").value = ctx.database;
+          await loadTables();
+          if (ctx.table) sel("tablePick").value = ctx.table;
+          if (ctx.table) doPreviewSchema();
+        }
+        if (!sel("source").value) { sel("connectHint").textContent = copy.openConn || ""; sel("connectHint").hidden = false; }
+      });
+
+      if (window.dbxPlugin.onEvent) {
+        window.dbxPlugin.onEvent(async (e) => {
+          if (e.method === "my2sql/job/progress") onProgress(e.params);
+          else if (e.method === "my2sql/job/done") onDone(e.params);
+          else if (e.method === "my2sql/exec/progress") onExecProgress(e.params);
+          else if (e.method === "my2sql/connectionChanged") {
+            await renderConnections();
+            const p = e.params || {};
+            if (p.state === "connected") browseConnId = p.connectionId;
+            else if (p.state === "disconnected" && p.connectionId === browseConnId) browseConnId = pickBrowseConn();
+            refreshDatabases();
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

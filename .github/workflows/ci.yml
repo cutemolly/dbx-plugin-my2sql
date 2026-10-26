@@ -1,0 +1,82 @@
+name: CI
+
+# Two tiers of confidence for the my2sql sidecar:
+#   offline  - default build/vet/unit tests + the JSON-RPC protocol smoke test.
+#              No network or database needed (the binlog kernel is behind the
+#              `my2sql` build tag, so the default tree stays dependency-free).
+#   live     - fetches the go-mysql kernel, compiles `-tags my2sql`, and runs the
+#              end-to-end flashback test against a real MySQL 8 service container:
+#              a committed DELETE is parsed from the live binlog, turned into
+#              rollback SQL, and executed to restore the row.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build (default, dependency-free)
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Protocol smoke test
+        working-directory: .
+        run: node smoke.mjs
+
+  live:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: cirootpw
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pcirootpw"
+          --health-interval=5s
+          --health-timeout=10s
+          --health-retries=20
+          --server-id=1
+          --log-bin=mysql-bin
+          --binlog-format=ROW
+          --binlog-row-image=FULL
+          --default-authentication-plugin=mysql_native_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Fetch binlog kernel
+        run: go get github.com/go-mysql-org/go-mysql@v1.9.1
+      - name: Compile with kernel
+        run: go build -tags my2sql ./...
+      - name: End-to-end flashback against MySQL
+        env:
+          MY2SQL_TEST_DSN: root:cirootpw@tcp(127.0.0.1:3306)/
+          MY2SQL_TEST_SCHEMA: my2sql_it
+        run: go test -tags my2sql -run TestMy2sqlEndToEnd -v ./...

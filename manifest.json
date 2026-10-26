@@ -1,0 +1,148 @@
+{
+  "$schema": "../plugins/manifest.schema.json",
+  "manifest_version": 1,
+  "id": "io.github.my2sql",
+  "name": "my2sql Binlog Toolkit",
+  "icon": "assets/plugin.svg",
+  "version": "1.0.0",
+  "publisher": "my2sql",
+  "description": "MySQL binlog viewer, SQL/rollback generator and flashback executor for DBX.",
+  "source": "https://github.com/liuhr/my2sql",
+  "homepage": "https://github.com/liuhr/my2sql",
+  "engines": {
+    "dbx": ">=0.6.48",
+    "host_api": "^1.0"
+  },
+  "permissions": ["host.connections:read", "host.events", "host.storage"],
+  "entrypoints": {
+    "backend": {
+      "executable": "bin/my2sql-sidecar",
+      "transport": "stdio-jsonl"
+    },
+    "ui": {
+      "root": "ui",
+      "entry": "ui/index.html"
+    }
+  },
+  "contributions": [
+    {
+      "type": "connection-provider",
+      "id": "io.github.my2sql.source",
+      "label": "my2sql MySQL Source",
+      "icon": "assets/connection.svg",
+      "database_type": "my2sql",
+      "description": "A MySQL instance whose binlog can be read. The replication user needs SELECT, REPLICATION SLAVE and REPLICATION CLIENT.",
+      "workbench": "io.github.my2sql.main",
+      "capabilities": ["test", "connect", "disconnect"],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Connection name",
+          "type": "text",
+          "default": "my2sql source",
+          "binding": "name",
+          "required": true
+        },
+        {
+          "key": "host",
+          "label": "Host",
+          "type": "text",
+          "default": "127.0.0.1",
+          "binding": "host",
+          "required": true
+        },
+        {
+          "key": "port",
+          "label": "Port",
+          "type": "number",
+          "default": 3306,
+          "binding": "port",
+          "required": true
+        },
+        {
+          "key": "username",
+          "label": "Replication user",
+          "type": "text",
+          "default": "root",
+          "binding": "username",
+          "required": true
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "password",
+          "binding": "password"
+        },
+        {
+          "key": "server_id",
+          "label": "Fake replica server-id",
+          "type": "number",
+          "default": 9999,
+          "binding": "config",
+          "description": "Must not clash with any real replica on the source server."
+        },
+        {
+          "key": "timezone",
+          "label": "Binlog timezone (-tl)",
+          "type": "text",
+          "default": "+08:00",
+          "binding": "config",
+          "description": "Used to interpret datetime columns and the start/stop time range."
+        }
+      ]
+    },
+    {
+      "type": "workbench",
+      "id": "io.github.my2sql.main",
+      "label": "my2sql",
+      "description": "Parse MySQL binlog online (as a fake replica) or offline (local files); generate original SQL, rollback SQL or DML/big-transaction stats, then execute the rollback against a target connection."
+    },
+    {
+      "type": "context-menu",
+      "id": "io.github.my2sql.open-connection",
+      "label": "my2sql: Analyze binlog",
+      "menu": "connection",
+      "action": {
+        "type": "open-workbench",
+        "workbench": "io.github.my2sql.main"
+      }
+    },
+    {
+      "type": "context-menu",
+      "id": "io.github.my2sql.rollback-table",
+      "label": "my2sql: Roll back this table",
+      "menu": "table",
+      "action": {
+        "type": "open-workbench",
+        "workbench": "io.github.my2sql.main"
+      }
+    }
+  ],
+  "localizations": {
+    "zh-CN": {
+      "name": "my2sql Binlog 工具",
+      "description": "MySQL binlog 查看、SQL/回滚生成与闪回执行工具。",
+      "contributions": {
+        "io.github.my2sql.source": {
+          "label": "my2sql MySQL 源",
+          "description": "可读取 binlog 的 MySQL 实例。复制账号需要 SELECT、REPLICATION SLAVE、REPLICATION CLIENT 权限。",
+          "fields": {
+            "name": { "label": "连接名称" },
+            "host": { "label": "主机" },
+            "port": { "label": "端口" },
+            "username": { "label": "复制账号", "description": "需要 REPLICATION SLAVE / REPLICATION CLIENT 权限" },
+            "password": { "label": "密码" },
+            "server_id": { "label": "伪装从库 server-id", "description": "不能与真实从库冲突" },
+            "timezone": { "label": "binlog 时区 (-tl)", "description": "用于解释 datetime 列与起止时间" }
+          }
+        },
+        "io.github.my2sql.main": {
+          "label": "my2sql",
+          "description": "在线（伪装从库）或离线（本地文件）解析 MySQL binlog，生成原始 SQL、回滚 SQL 或 DML/大事务统计，并可对目标连接执行回滚。"
+        },
+        "io.github.my2sql.open-connection": { "label": "my2sql：分析 Binlog" },
+        "io.github.my2sql.rollback-table": { "label": "my2sql：回滚此表" }
+      }
+    }
+  }
+}
