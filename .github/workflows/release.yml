@@ -20,7 +20,11 @@ permissions:
 
 jobs:
   release:
-    uses: t8y2/dbx/.github/workflows/plugin-release-reusable.yml@plugin-sdk-v1
+    # Pinned to the tag that publishes the matching dbx-plugin CLI (0.1.2).
+    # The @plugin-sdk-v1 ref shown in the SDK template does not exist upstream;
+    # plugin-cli-v0.1.2 carries this reusable workflow and matches the
+    # plugin-cli-version passed below.
+    uses: t8y2/dbx/.github/workflows/plugin-release-reusable.yml@plugin-cli-v0.1.2
     with:
       release-tag: ${{ github.event.release.tag_name || inputs.release_tag }}
       # package.mjs delegates to the precompiled dbx-plugin CLI installed by the
