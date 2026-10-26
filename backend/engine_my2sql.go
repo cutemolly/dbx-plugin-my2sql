@@ -372,7 +372,13 @@ func (s *parseState) fileKeys(schema, table string) (forward, rollback string) {
 }
 
 func (s *parseState) writeSQL(name, schema, table, label, stmt string, forward bool) error {
-	w, err := s.sink(name, filepath.Join(s.outDir, name), "sql", forward)
+	// sink() dedupes by (name, registry); rollback sinks are only ever opened
+	// with forward=false, so the kind follows the direction unconditionally.
+	kind := "rollback"
+	if forward {
+		kind = "sql"
+	}
+	w, err := s.sink(name, filepath.Join(s.outDir, name), kind, forward)
 	if err != nil {
 		return err
 	}
