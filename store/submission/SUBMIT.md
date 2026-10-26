@@ -21,10 +21,11 @@ workflow generates them after review.
 
 ## Steps
 
-1. Fork the store and clone the fork:
+1. Fork the store and clone the fork (the `--remote` flag is unsupported when a
+   repository argument is provided, so do not pass it):
 
    ```bash
-   gh repo fork t8y2/dbx-store --clone=true --remote=false
+   gh repo fork t8y2/dbx-store --clone
    ```
 
 2. On a new branch in the fork, add the two files exactly at the store paths:
