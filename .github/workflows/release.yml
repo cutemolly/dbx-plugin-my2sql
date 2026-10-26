@@ -1,9 +1,10 @@
 name: Release DBX plugin
 
 # Builds one unsigned .dbxp candidate per supported target and attaches them to
-# the published GitHub Release. Go cross-compiles the sidecar, so a single Linux
-# runner produces every target (the Rust packager runs once per target). Signing
-# is performed by the DBX Store maintainers after review — see CONTRIBUTING.md.
+# the published GitHub Release, via the official reusable DBX Store workflow.
+# The dbx-plugin CLI packages on the target platform's own runner (no host
+# cross-compilation). Signing is performed by DBX Store maintainers after review
+# — see https://github.com/t8y2/dbx/blob/main/plugins/RELEASING.md.
 
 on:
   release:
@@ -17,62 +18,22 @@ on:
 permissions:
   contents: write
 
-env:
-  PLUGIN_ID: io.github.my2sql
-  PLUGIN_VERSION: 1.0.0
-
 jobs:
-  candidates:
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-          cache: true
-          cache-dependency-path: backend/go.sum
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Fetch binlog kernel
-        working-directory: backend
-        # go-mysql supplies the online (fake-replica) + offline (file) binlog
-        # readers used by the `my2sql`-tagged engine. This is network-only, which
-        # is why the default local build keeps the dependency-free placeholder.
-        run: |
-          go get github.com/go-mysql-org/go-mysql@v1.9.1
-          go mod download
-      - name: Package
-        env:
-          DBX_PLUGIN_TARGET: ${{ matrix.target }}
-          DBX_MY2SQL_TAGS: my2sql
-        run: node package.mjs
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PLUGIN_ID }}-${{ env.PLUGIN_VERSION }}-${{ matrix.target }}
-          path: |
-            dist/${{ env.PLUGIN_ID }}-${{ env.PLUGIN_VERSION }}-${{ matrix.target }}.dbxp
-            dist/${{ env.PLUGIN_ID }}-${{ env.PLUGIN_VERSION }}-${{ matrix.target }}.artifact.json
-
-  publish:
-    needs: candidates
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'release' || inputs.release_tag
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: "${{ env.PLUGIN_ID }}-*"
-          merge-multiple: true
-          path: assets
-      - name: Upload candidates to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.release_tag }}
-          files: assets/*
+  release:
+    uses: t8y2/dbx/.github/workflows/plugin-release-reusable.yml@plugin-sdk-v1
+    with:
+      release-tag: ${{ github.event.release.tag_name || inputs.release_tag }}
+      # package.mjs delegates to the precompiled dbx-plugin CLI installed by the
+      # reusable workflow and injects GOFLAGS=-tags=my2sql so the shipped
+      # sidecar links the real go-mysql binlog kernel. The env prefix runs in
+      # the reusable workflow's bash build step on every runner.
+      package-command: DBX_MY2SQL_TAGS=my2sql node package.mjs
+      package-path: dist/*.dbxp
+      metadata-path: dist/*.artifact.json
+      plugin-cli-version: 0.1.2
+      go-version: "1.22.x"
+      # The Go sidecar builds with CGO_ENABLED=0; no Rust toolchain is needed
+      # because the precompiled CLI embeds the packager.
+      rust-toolchain: ""
+      build-matrix: >-
+        {"include":[{"runner":"ubuntu-24.04","target":"linux-x64"},{"runner":"ubuntu-24.04-arm","target":"linux-arm64"},{"runner":"windows-2022","target":"windows-x64"},{"runner":"macos-15-intel","target":"darwin-x64"},{"runner":"macos-15","target":"darwin-arm64"}]}

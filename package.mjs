@@ -1,71 +1,56 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import os from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 // Builds an unsigned .dbxp review candidate for the current (or DBX_PLUGIN_TARGET)
-// platform: cross-compiles the Go sidecar, stages manifest + assets + ui, then
-// runs the repository packager. Signing is a separate, maintainer-only step.
+// platform with the official DBX plugin CLI (@dbx-app/plugin-cli). The CLI
+// cross-compiles the Go sidecar from dbx-plugin.toml, stages manifest + assets +
+// ui, and runs the packager. Signing is a separate, maintainer-only step in the
+// DBX Store workflow; this script refuses to run with signing inputs present.
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = process.env.DBX_PLUGIN_OUTPUT_DIR ? path.resolve(process.env.DBX_PLUGIN_OUTPUT_DIR) : path.join(root, "dist");
-const buildRoot = await mkdtemp(path.join(os.tmpdir(), "dbx-my2sql-package-"));
-const stage = path.join(buildRoot, "stage");
 const detectedTarget = platformTarget();
 const target = process.env.DBX_PLUGIN_TARGET || detectedTarget;
-const exeName = target.startsWith("windows") ? "my2sql-sidecar.exe" : "my2sql-sidecar";
-const output = path.join(dist, `io.github.my2sql-1.0.0-${target}.dbxp`);
-const artifactMetadata = output.replace(/\.dbxp$/, ".artifact.json");
 
 if (process.env.DBX_PLUGIN_SIGNING_KEY || process.env.DBX_PLUGIN_SIGNING_KEY_ID) {
   throw new Error("package.mjs only builds unsigned review candidates; signing happens in the store workflow.");
 }
 
-const [goos, goarch] = splitTarget(target);
-const env = { ...process.env, CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch, GOFLAGS: "-mod=mod" };
+const manifest = JSON.parse(readFileSync(path.join(root, "manifest.json"), "utf8"));
+const output = path.join(dist, `${manifest.id}-${manifest.version}-${target}.dbxp`);
 
-// The binlog kernel is gated behind the `my2sql` build tag so the sidecar can be
-// packaged with only the standard library when the go-mysql module is not yet
-// fetched. Set DBX_MY2SQL_TAGS=my2sql (in a networked build) to link the real
-// parsing engine into the shipped binary.
+// The binlog kernel is gated behind the `my2sql` build tag. Set
+// DBX_MY2SQL_TAGS=my2sql (in a networked build) to link the real go-mysql
+// parsing engine into the shipped binary; the default build stays the
+// dependency-free placeholder engine. The Go toolchain inherits GOFLAGS, and
+// the CLI calls `go build` directly, so the tag flows through here.
+const env = { ...process.env, CGO_ENABLED: "0" };
 const goTags = process.env.DBX_MY2SQL_TAGS || "";
-const goBuildArgs = ["build", "-trimpath"];
-if (goTags) goBuildArgs.push("-tags", goTags);
-goBuildArgs.push("-ldflags", "-s -w", "-o", path.join(stage, "bin", target, exeName), ".");
-
-try {
-  await mkdir(path.join(stage, "bin", target), { recursive: true });
-  await mkdir(dist, { recursive: true });
-
-  run("go", goBuildArgs, env, path.join(root, "backend"));
-
-  const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
-  manifest.entrypoints.backend = { executable: `bin/${target}/${exeName}`, transport: "stdio-jsonl" };
-  await writeFile(path.join(stage, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  await cp(path.join(root, "assets"), path.join(stage, "assets"), { recursive: true });
-  await cp(path.join(root, "ui"), path.join(stage, "ui"), { recursive: true });
-
-  const packager = path.join(root, "..", "plugins", "sdk", "packager", "Cargo.toml");
-  run("cargo", ["run", "--release", "--manifest-path", packager, "--", stage, output, "--artifact-metadata", artifactMetadata, "--target", target, "--artifact-url", path.basename(output)], env, root);
-  console.log(`Built unsigned candidate ${output}`);
-} finally {
-  await rm(buildRoot, { recursive: true, force: true });
+if (goTags) {
+  env.GOFLAGS = env.GOFLAGS ? `${env.GOFLAGS} -tags=${goTags}` : `-tags=${goTags}`;
 }
 
-function run(command, args, extraEnv, cwd) {
-  const result = spawnSync(command, args, { cwd, env: { ...process.env, ...extraEnv }, stdio: "inherit", shell: process.platform === "win32" });
+const cli = process.env.DBX_PLUGIN_CLI || "dbx-plugin";
+// Probe without a shell so a missing CLI surfaces as ENOENT instead of a shell exit code.
+const cliProbe = spawnSync(cli, ["--help"], { encoding: "utf8" }).error;
+if (!cliProbe) {
+  // The CLI packages from the project root; --target also accepts DBX_PLUGIN_TARGET.
+  const result = spawnSync(cli, ["package", ".", "--target", target, "--output-dir", dist, "--artifact-url", path.basename(output)], { cwd: root, env, stdio: "inherit", shell: process.platform === "win32" });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+} else {
+  // Fallback for checkouts beside the dbx repository: drive the Rust packager with cargo.
+  const packager = process.env.DBX_PLUGIN_PACKAGER_MANIFEST || path.join(root, "..", "plugins", "sdk", "packager", "Cargo.toml");
+  if (!existsSync(packager)) {
+    throw new Error(`Neither the dbx-plugin CLI nor the dbx repository packager (${packager}) was found. Install @dbx-app/plugin-cli or set DBX_PLUGIN_PACKAGER_MANIFEST.`);
+  }
+  const result = spawnSync("cargo", ["run", "--release", "--manifest-path", packager, "--", ".", "--target", target, "--output-dir", dist, "--artifact-url", path.basename(output)], { cwd: root, env, stdio: "inherit", shell: process.platform === "win32" });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-function splitTarget(t) {
-  const [osName, arch] = t.split("-");
-  const goos = { darwin: "darwin", linux: "linux", windows: "windows" }[osName];
-  const goarch = { arm64: "arm64", x64: "amd64" }[arch];
-  if (!goos || !goarch) throw new Error(`Unsupported plugin target: ${t}`);
-  return [goos, goarch];
-}
+console.log(`Built unsigned candidate ${output}`);
 
 function platformTarget() {
   const osName = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform];

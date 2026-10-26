@@ -4,7 +4,8 @@ name: CI
 #   offline  - default build/vet/unit tests + the JSON-RPC protocol smoke test.
 #              No network or database needed (the binlog kernel is behind the
 #              `my2sql` build tag, so the default tree stays dependency-free).
-#   live     - fetches the go-mysql kernel, compiles `-tags my2sql`, and runs the
+#   live     - compiles `-tags my2sql` (go-mysql is a declared module dependency,
+#              fetched from the module proxy) and runs the
 #              end-to-end flashback test against a real MySQL 8 service container:
 #              a committed DELETE is parsed from the live binlog, turned into
 #              rollback SQL, and executed to restore the row.
@@ -71,8 +72,6 @@ jobs:
           go-version: "1.22"
           cache: true
           cache-dependency-path: backend/go.sum
-      - name: Fetch binlog kernel
-        run: go get github.com/go-mysql-org/go-mysql@v1.9.1
       - name: Compile with kernel
         run: go build -tags my2sql ./...
       - name: End-to-end flashback against MySQL

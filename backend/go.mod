@@ -31,4 +31,4 @@ require (
 	golang.org/x/text v0.14.0
 )
 
-replace github.com/t8y2/dbx/plugins/sdk/go/dbx-plugin-sdk => ../../plugins/sdk/go/dbx-plugin-sdk
+replace github.com/t8y2/dbx/plugins/sdk/go/dbx-plugin-sdk => ./dbx-plugin-sdk

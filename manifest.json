@@ -5,7 +5,7 @@
   "name": "my2sql Binlog Toolkit",
   "icon": "assets/plugin.svg",
   "version": "1.0.0",
-  "publisher": "my2sql",
+  "publisher": "cutemolly",
   "description": "MySQL binlog viewer, SQL/rollback generator and flashback executor for DBX.",
   "source": "https://github.com/liuhr/my2sql",
   "homepage": "https://github.com/liuhr/my2sql",
