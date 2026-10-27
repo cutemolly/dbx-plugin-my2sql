@@ -159,7 +159,8 @@ transport, launched by the DBX host).
 ## Review round 2 (folded into the `1.0.1` tag)
 
 Found while testing the plugin against real traffic; none of these required a
-version bump, so they were folded into `1.0.1` (see the tag disclosure above).
+version bump, so they were folded into `1.0.1` (see the build-provenance note
+above).
 
 1. **Whole-file reads could abort the sidecar.** `job/output/preview`,
    `exec/prepare` and `exec/start` read the entire output file into memory. A real
