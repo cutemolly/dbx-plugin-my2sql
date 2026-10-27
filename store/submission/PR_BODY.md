@@ -16,8 +16,15 @@ findings from that review are fixed here; see "Security review fixes" below.
 ## Source repository and tag
 
 Source: https://github.com/cutemolly/dbx-plugin-my2sql
-Immutable tag the candidates were built from: `v1.0.1` (commit `254e02c63aca4ba570847fdf6c59616c3fde23d4`).
-The tag was created **before** the release build and has not been moved.
+Tag the candidates were built from: `v1.0.1` (commit `b88903b`).
+
+> Disclosure: `v1.0.1` was first cut at `254e02c` for the initial submission. The
+> review round and local testing surfaced further defects (a whole-file read that
+> could abort the sidecar, lost output on manual stop, and the deletion path
+> below), so the annotated tag was moved to `b88903b` and all five assets were
+> rebuilt from that commit on 2026-10-27. The version number stayed `1.0.1` by
+> the reviewer's and publisher's choice; `release-candidates.json` and the pins
+> in `candidates/io.github.my2sql.json` reflect the rebuilt assets.
 
 Unsigned candidate assets and the merged `release-candidates.json` are attached to
 GitHub Release `v1.0.1`:
@@ -98,10 +105,13 @@ transport, launched by the DBX host).
 
 ## Security review fixes (1.0.1)
 
-1. **jobId path traversal** — `jobOutputDir` (the single choke point for
-   `job/output/list`, `job/output/preview`, `exec/prepare`, `exec/start`) now
-   rejects any id outside `[A-Za-z0-9_-]{1,64}` and re-checks the joined path
-   stays directly under `jobs/`. Regression tests cover the original
+1. **jobId path traversal** — the path resolver (the single choke point for
+   `job/output/list`, `job/output/preview`, `job/delete`, `exec/prepare`,
+   `exec/start`) rejects any id outside `[A-Za-z0-9_-]{1,64}` and re-checks the
+   joined path stays directly under `jobs/`. It is now split into a validation-only
+   `jobOutputPath` (all read and delete paths) and `jobOutputDir` (validate +
+   create, used only when an engine is about to write), so no read path can
+   recreate a directory. Regression tests cover the original
    `../../../../../../etc` + `hosts` reproduction at both unit and RPC level
    (`backend/security_test.go`, `security-smoke.mjs`).
 2. **UI HTML injection** — every server-controlled value rendered into
@@ -122,12 +132,50 @@ transport, launched by the DBX host).
    crypto/edwards25519 BSD-3-Clause; remainder MIT including Masterminds/semver).
 6. **`host.storage`** — removed as unused.
 
+## Review round 2 (same `1.0.1` tag, commit `b88903b`)
+
+Found while testing the plugin against real traffic; none of these required a
+version bump, so they were folded into `1.0.1` (see the tag disclosure above).
+
+1. **Whole-file reads could abort the sidecar.** `job/output/preview`,
+   `exec/prepare` and `exec/start` read the entire output file into memory. A real
+   analysis routinely produces multi-gigabyte rollback scripts (observed: 1.34 GB),
+   which triggered a Go runtime allocation failure — not catchable by `recover()` —
+   and recycled the process; the workbench then reported the harmless-looking
+   `unknown job`. All three now stream the file through one shared statement/line
+   scanner (`stmtSplitter`, `nextLine`, `scanLineWindow`), bounded by a 64 KB
+   per-line display cap and a 64 MB per-statement hard stop for execution, so a
+   statement is never silently truncated. Measured on the same 1.5 GB file: old
+   path 4.0 GB live heap; new path 13 previews in 4 ms, process alive.
+   Equivalence between the streaming and previous whole-string splitting is
+   proven by a dedicated test (`backend/stream_test.go`).
+2. **Manual stop kept no output.** The engine writes SQL while it parses, so a
+   stopped job has real files; the cancellation error path discarded them. Stop now
+   preserves the flushed files and statistics, the force-stop watchdog lists what
+   is on disk, `isStopped` sees through wrapped context errors, and the UI renders
+   output even when the result carries an error.
+3. **History view.** Completed analyses are listed from the plugin data directory
+   (they survive a sidecar restart), each entry carrying the connection identity it
+   ran against — id, name, host, port only, never credentials — and a new
+   `job/delete` RPC plus a two-step in-UI delete reclaims the disk.
+4. **Panic isolation and disclosure.** `Handle`, the analysis engine and the
+   execution goroutine each `recover()` (the Go SDK has no boundary of its own),
+   so a panic fails one request or one job instead of the whole process. The panic
+   value is written to the plugin log only: the RPC error, `job.json` and the UI
+   get a generic message, because a kernel panic can carry SQL or connection text.
+5. **UI injection surface.** Server-supplied statistics numbers, timestamps and
+   file kinds interpolated into `innerHTML` are now escaped or coerced; the output
+   preview became lazy (no automatic read of the first file on job completion).
+
 ## Known limitations
 
-- Generated output files persist under the plugin data directory after
-  uninstall; an in-UI cleanup entry is planned but not yet implemented.
+- Output files of a deleted analysis are removed with the history entry
+  (`job/delete`), but a job left untouched persists in the plugin data directory
+  after uninstall; there is no bulk-cleanup action yet.
 - `verify` TLS mode validates the CA and server name against the system trust
   store; custom CA pinning via a file picker is not yet offered.
+- `threads` is accepted and defaulted to 8 but the in-process parser currently
+  runs single-stream; the value has no effect yet.
 
 ## License
 
@@ -144,6 +192,7 @@ https://github.com/cutemolly/dbx-plugin-my2sql (issues tracked here)
 
 ## Confirmation
 
-- [x] The candidate packages are unsigned and match the disclosed source tag.
+- [x] The candidate packages are unsigned and match the disclosed source tag
+      (tag `v1.0.1` at `b88903b`, rebuilt assets — see the tag disclosure above).
 - [x] I have not included private keys, tokens, credentials, or proprietary data.
 - [x] The candidates are listed in `candidates/io.github.my2sql.json`; `plugins/` and `catalog/` were not edited manually.
