@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -164,8 +165,30 @@ func (s *parseState) loadWindow() error {
 		s.stopAt = t
 		s.hasTime = true
 	}
+	if !s.startAt.IsZero() && !s.stopAt.IsZero() && s.stopAt.Before(s.startAt) {
+		return fmt.Errorf("stop time %s is before start time %s (interpreted in %s): the window is empty",
+			s.stopAt.Format("2006-01-02 15:04:05"), s.startAt.Format("2006-01-02 15:04:05"), loc)
+	}
+	// An online scan can only end on a stop boundary by seeing an event whose
+	// timestamp is past it, or once the wall clock passes it. A stop time in the
+	// future therefore does not bound the job at all: it replays the whole binlog
+	// from the start point and then keeps streaming live events until that clock
+	// time arrives, which reads to the user as a job that never finishes. Offline
+	// files are unaffected - their events are all in the past, so the scan ends
+	// with the file.
+	if !s.stopAt.IsZero() && strings.EqualFold(s.opts.Mode, "repl") {
+		if d := time.Until(s.stopAt); d > futureStopTolerance {
+			return fmt.Errorf("stop time %s is in the future (by %s, interpreted in %s): an online analysis would have to keep streaming binlog until then before it can finish. Pick a stop time in the past, or leave it empty to capture live until you press stop",
+				s.stopAt.Format("2006-01-02 15:04:05"), d.Round(time.Second), loc)
+		}
+	}
 	return nil
 }
+
+// futureStopTolerance absorbs clock skew between this machine and the source
+// server (and a stop time typed as "now") so the guard above only rejects a
+// window that really cannot be reached yet.
+const futureStopTolerance = 60 * time.Second
 
 // eventTime converts a header timestamp (unix seconds) into the analysis zone.
 func (s *parseState) eventTime(headerSec uint32) time.Time {
@@ -577,7 +600,9 @@ func (s *parseState) nextStreamEvent(streamer *replication.BinlogStreamer) (*rep
 	ev, err := streamer.GetEvent(getCtx)
 	cancel()
 	if err != nil {
-		if err == context.DeadlineExceeded && s.ctx.Err() == nil {
+		// errors.Is on both sides: this poll deadline must never fall through to
+		// isStopped, which would turn a still-open window into a clean finish.
+		if errors.Is(err, context.DeadlineExceeded) && s.ctx.Err() == nil {
 			if s.idlePollPastWindow() {
 				return nil, errStreamIdle
 			}
@@ -789,7 +814,13 @@ func (s *parseState) result() JobResult {
 
 var errStopParse = fmt.Errorf("stop parsing")
 
-func isStopped(err error) bool { return err == context.Canceled || err == context.DeadlineExceeded }
+// isStopped reports a cancellation rather than a parse failure. It must see
+// through wrapping: go-mysql and the driver return the context error nested in
+// their own message, and treating that as a failure would discard the partial
+// output a manual stop had already written.
+func isStopped(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
 
 func rowsKind(t replication.EventType) (EventKind, bool) {
 	switch t {
@@ -839,7 +870,9 @@ func splitEndpoint(ep string) (string, int) {
 }
 
 func parseMySQLTime(s string, loc *time.Location) (time.Time, error) {
-	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05.999999"} {
+	// The UI sends second-precision (datetime-local step=1); the minute forms are
+	// accepted so a hand-written or browser-truncated value is not rejected.
+	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05.999999", "2006-01-02 15:04", "2006-01-02T15:04"} {
 		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 			return t, nil
 		}

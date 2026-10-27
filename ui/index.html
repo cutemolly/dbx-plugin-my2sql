@@ -160,6 +160,7 @@
         <div class="row">
           <button class="btn primary" id="start" data-i="startBtn">Start analysis</button>
           <button class="btn" id="stop" disabled data-i="stop_btn">Stop</button>
+          <button class="btn" id="newJob" data-i="newJobBtn">New analysis</button>
           <span class="badge" id="jobBadge" data-i="idle">idle</span>
           <span class="muted" id="jobInfo"></span>
         </div>
@@ -170,6 +171,7 @@
           <button role="tab" data-tab="stats" aria-selected="true" data-i="tabStats">Stats</button>
           <button role="tab" data-tab="files" aria-selected="false" data-i="tabFiles">SQL files</button>
           <button role="tab" data-tab="exec" aria-selected="false" data-i="tabExec">Execute rollback</button>
+          <button role="tab" data-tab="history" aria-selected="false" data-i="tabHistory">History</button>
         </div>
         <div style="padding-top:12px;">
           <section id="tab-stats"><div class="muted" id="statsEmpty" data-i="noResult">No result yet.</div><div id="statsBody" hidden></div></section>
@@ -195,6 +197,17 @@
             </div>
             <div class="mono" id="execInfo" style="margin-top:10px;">-</div>
           </section>
+          <section id="tab-history" hidden>
+            <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap;">
+              <button class="btn" id="refreshHistory" data-i="refreshHistory">Reload</button>
+              <select id="historyScope">
+                <option value="all" data-i="hScopeAll">All connections</option>
+                <option value="current" data-i="hScopeCurrent">This connection</option>
+              </select>
+              <span class="muted" data-i="historyHint">Analyses are read back from the plugin output folder, so they survive a plugin restart.</span>
+            </div>
+            <div id="historyBody" style="margin-top:10px;"></div>
+          </section>
         </div>
       </div>
     </main>
@@ -210,6 +223,12 @@
           filePerTable: "File per table", addExtraInfo: "Add SQL comments", ignorePk: "INSERT without PK", fullColumns: "Full columns",
           useUnique: "Prefer unique key", threads: "Threads", bigTrx: "Big-trx row limit", longTrx: "Long-trx seconds",
           startBtn: "Start analysis", stop_btn: "Stop", tabStats: "Stats", tabFiles: "SQL files", tabExec: "Execute rollback",
+          newJobBtn: "New analysis", tabHistory: "History", refreshHistory: "Reload", historyHint: "Analyses are read back from the plugin output folder, so they survive a plugin restart.",
+          hTime: "Started", hJob: "Job", hRange: "Range", hStatus: "Status", hOutput: "Output", hView: "View", hLoading: "loading…", hNone: "No saved analysis yet.", hSelectedTpl: "viewing job {id}", hUnknown: "unknown", hFilesTpl: "{files} file(s) · {bytes} KB",
+          outWithoutStatsTpl: "{files} SQL file(s) were generated — open the SQL files tab. Per-table statistics are only available when the analysis ends on its own.",
+          previewMore: "{total} lines in total", previewMoreBig: "large file — only the first lines are shown",
+          pickFile: "Select a file to view its content.", hDelete: "Delete", hDeleteSure: "Confirm delete?", hDeletedTpl: "deleted job {id} and its output",
+          hConn: "Connection", hScopeAll: "All connections", hScopeCurrent: "This connection", hNoConn: "(unknown)",
           noResult: "No result yet.", emptyOut: "No matching output.", diagTpl: "Scanned {events} binlog events · {rows} matched rows · {trx} transactions. If matched is 0: check the time window (incl. timezone), db/table filters (TDSQL physical names look like db@table@shard) and the SQL type checkboxes.", execFile: "Rollback file", target: "Target connection", prepare: "Prepare", doExec: "Confirm & execute",
           openConn: "Open this workbench from a saved my2sql connection so DBX connects it.", noSource: "(no my2sql connection)",
           starting: "starting…", running: "running", done: "done", failed: "failed", stopped: "stopped", connecting: "connecting…", parsing: "parsing", initiating: "initiating…",
@@ -225,6 +244,7 @@
           idle: "idle", offlineTag: "(offline)", statements: "statements", notReady: "not ready", error: "error",
           jobTpl: "job {id}", execStartedTpl: "execution {id} started…",
           rePrepareNeeded: "Selection changed since Prepare; click Prepare again to re-confirm.",
+          jobLost: "The plugin process was restarted, so this job's state is gone. Start the analysis again.",
           statTable: "Table", statInsert: "Insert", statUpdate: "Update", statDelete: "Delete", statTotal: "Total",
           executing: "executing",
           stopping: "stopping…", pathLabel: "Output path", copyFile: "Copy file path", copyDir: "Copy folder", copied: "Copied", noPath: "No output file yet.",
@@ -237,6 +257,12 @@
           filePerTable: "按表分文件", addExtraInfo: "附加 SQL 注释", ignorePk: "INSERT 省略主键", fullColumns: "输出完整列",
           useUnique: "优先使用唯一键", threads: "线程数", bigTrx: "大事务行数阈值", longTrx: "长事务秒数",
           startBtn: "开始分析", stop_btn: "停止", tabStats: "统计", tabFiles: "SQL 文件", tabExec: "执行回滚",
+          newJobBtn: "新建任务", tabHistory: "历史任务", refreshHistory: "刷新", historyHint: "历史任务从插件产出目录读回，插件进程重启后仍然可见。",
+          hTime: "发起时间", hJob: "任务", hRange: "范围", hStatus: "状态", hOutput: "产出", hView: "查看", hLoading: "加载中…", hNone: "暂无历史任务。", hSelectedTpl: "正在查看任务 {id}", hUnknown: "未知", hFilesTpl: "{files} 个文件 · {bytes} KB",
+          outWithoutStatsTpl: "已生成 {files} 个 SQL 文件，请到「SQL 文件」页查看。分表统计仅在作业自然结束时提供。",
+          previewMore: "共 {total} 行", previewMoreBig: "文件较大，仅显示开头部分",
+          pickFile: "点击文件查看内容。", hDelete: "删除", hDeleteSure: "确认删除？", hDeletedTpl: "已删除任务 {id} 及其产出",
+          hConn: "连接", hScopeAll: "全部连接", hScopeCurrent: "仅当前连接", hNoConn: "（未知）",
           noResult: "暂无结果。", emptyOut: "无匹配产出。", diagTpl: "已扫描 {events} 个 binlog 事件 · 命中 {rows} 行 · {trx} 个事务。若命中为 0：请检查时间窗（含时区）、库/表过滤（TDSQL 物理表名形如 库@表@分片）与 SQL 类型勾选。", execFile: "回滚文件", target: "目标连接", prepare: "预备", doExec: "确认并执行",
           openConn: "请从已保存的 my2sql 连接打开此工作台，由 DBX 建立连接。", noSource: "（暂无 my2sql 连接）",
           starting: "启动中…", running: "运行中", done: "完成", failed: "失败", stopped: "已停止", connecting: "建立复制连接中…", parsing: "解析中", initiating: "任务初始化…",
@@ -252,6 +278,7 @@
           idle: "空闲", offlineTag: "（离线）", statements: "条语句", notReady: "未就绪", error: "错误",
           jobTpl: "任务 {id}", execStartedTpl: "执行 {id} 已启动…",
           rePrepareNeeded: "选项自「预备」后已变化，请重新点击「预备」再次确认。",
+          jobLost: "插件进程已被重启，该作业状态已丢失，请重新发起分析。",
           statTable: "表", statInsert: "Insert", statUpdate: "Update", statDelete: "Delete", statTotal: "合计",
           executing: "执行中",
           stopping: "停止中…", pathLabel: "产出路径", copyFile: "复制文件路径", copyDir: "复制所在目录", copied: "已复制", noPath: "暂无产出文件。",
@@ -263,6 +290,8 @@
       // job/file/target triple; the backend is the real gate, this only avoids
       // re-preparing for the same selection.
       let pendingExec = null;
+      // Job-state fallback polling lives here so every handler below sees it.
+      let statusTimer = null, stopRequested = false, lastEventAt = 0;
       // Browse targets the connection DBX currently has OPEN; the source
       // dropdown only configures job parameters.
       let browseConnId = "", initCtx = null;
@@ -307,6 +336,10 @@
       }
 
       function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+      // Stats and counters below are server-supplied text that ends up inside an
+      // innerHTML template, so they are escaped or coerced to a number rather than
+      // interpolated as they came off the wire.
+      function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
       function pickBrowseConn() {
         if (initCtx && initCtx.connectionId && connections.some((c) => c.id === initCtx.connectionId && c.isConnected)) return initCtx.connectionId;
@@ -449,33 +482,199 @@
       }
       async function startJob() {
         resetResults();
+        stopRequested = false;
         badges("jobBadge", "starting", "run"); currentJob = ""; sel("stop").disabled = false; sel("start").disabled = true;
         try {
           const r = await invoke("job/start", buildOptions());
           currentJob = r.jobId; sel("jobInfo").textContent = copy.jobTpl.replace("{id}", r.jobId);
-        } catch (e) { badges("jobBadge", "failed", "err"); sel("jobInfo").textContent = String(e.message || e); sel("stop").disabled = true; sel("start").disabled = false; }
+          startStatusPolling();
+        } catch (e) { stopStatusPolling(); badges("jobBadge", "failed", "err"); sel("jobInfo").textContent = String(e.message || e); sel("stop").disabled = true; sel("start").disabled = false; }
       }
       async function stopJob() {
         if (!currentJob) { sel("jobInfo").textContent = copy.noResult; return; }
+        stopRequested = true;
         badges("jobBadge", "stopping", "run");
+        sel("stop").disabled = true;
         try { await invoke("job/stop", { jobId: currentJob }); }
-        catch (e) { badges("jobBadge", "failed", "err"); sel("jobInfo").textContent = String(e.message || e); }
+        catch (e) {
+          const m = String(e.message || e);
+          // A job the sidecar no longer knows about is lost state (the host
+          // recycled the process), not a failed stop attempt.
+          if (/unknown job/i.test(m)) { onJobLost(); return; }
+          stopRequested = false; sel("stop").disabled = false;
+          badges("jobBadge", "failed", "err"); sel("jobInfo").textContent = m;
+        }
+        startStatusPolling();
+      }
+
+      // my2sql/job/done is the fast path, but it is not a reliable one: the event
+      // stream belongs to the sidecar session, so if the host restarts the process
+      // (crash + backoff) the tab keeps a dead subscription and would sit in
+      // "stopping" forever after an RPC that actually worked. job/status goes over
+      // the request channel, so polling it keeps the visible state truthful.
+      function startStatusPolling() { stopStatusPolling(); statusTimer = setInterval(pollJobStatus, 2000); }
+      function stopStatusPolling() { if (statusTimer) { clearInterval(statusTimer); statusTimer = null; } }
+      async function pollJobStatus() {
+        if (!currentJob) { stopStatusPolling(); return; }
+        let st;
+        try { st = await invoke("job/status", { jobId: currentJob }); }
+        catch (e) {
+          if (/unknown job/i.test(String(e.message || e))) onJobLost();
+          return; // transient transport error: retry on the next tick
+        }
+        if (!st || !st.status) return;
+        if (st.status !== "running") {
+          stopStatusPolling();
+          await onDone(st.result && st.result.jobId === st.jobId ? st.result : { jobId: st.jobId, status: st.status, error: st.error });
+          return;
+        }
+        // Still running. Only re-label the badge when the event stream looks dead
+        // (otherwise the finer-grained stage from job/progress would be overwritten
+        // by the coarser "running" every two seconds).
+        if (stopRequested || Date.now() - lastEventAt > 6000) badges("jobBadge", st.status, "run");
+      }
+      function onJobLost() {
+        stopStatusPolling();
+        stopRequested = false; currentJob = "";
+        badges("jobBadge", "idle", "err");
+        sel("jobInfo").textContent = copy.jobLost;
+        sel("stop").disabled = true; sel("start").disabled = false;
+      }
+
+      // --- history view -------------------------------------------------------
+      // job/history reads the plugin output folder, not the in-memory job map, so
+      // the list stays complete across a sidecar restart — which is exactly when
+      // the DBA needs to find the analysis they thought they had lost.
+      let historyRows = [];
+      function fmtLocal(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? iso : d.toLocaleString();
+      }
+      function historyRange(o) {
+        o = o || {};
+        const bits = [o.mode === "file" ? "offline" : "online"];
+        if (o.workType) bits.push(o.workType);
+        if (o.startDatetime || o.stopDatetime) bits.push(`${o.startDatetime || "…"} → ${o.stopDatetime || "…"}`);
+        else if (o.startFile || o.startPos || o.stopPos) bits.push(`${o.startFile || "…"}:${o.startPos || 0} → ${o.stopPos || "end"}`);
+        if ((o.databases || []).length) bits.push(o.databases.join(","));
+        if ((o.tables || []).length) bits.push(o.tables.join(","));
+        return bits.join(" · ");
+      }
+      function historyConnId(row) {
+        return (row.connection && row.connection.id) || (row.options && row.options.sourceConnectionId) || "";
+      }
+      // The label comes from the connection snapshot taken when the job started, so
+      // renaming or deleting the saved connection cannot orphan a history row;
+      // only entries written before the snapshot existed fall back to the live list.
+      function historyConnLabel(row) {
+        const c = row.connection || {};
+        if (c.name) return c.host ? `${c.name} · ${c.host}:${c.port}` : c.name;
+        const id = c.id || (row.options && row.options.sourceConnectionId) || "";
+        if (!id) return copy.hNoConn;
+        const live = (connections || []).find((x) => x.id === id);
+        return live ? live.name : id;
+      }
+      async function loadHistory() {
+        sel("historyBody").innerHTML = `<div class="muted">${escapeHtml(copy.hLoading)}</div>`;
+        try {
+          const r = await invoke("job/history", { limit: 50 }, 20000);
+          historyRows = r.jobs || [];
+        } catch (e) {
+          historyRows = [];
+          sel("historyBody").innerHTML = `<div class="muted">${escapeHtml(String(e.message || e))}</div>`;
+          return;
+        }
+        renderHistory();
+      }
+      function renderHistory() {
+        let shown = historyRows.map((row, i) => ({ row, i }));
+        const cur = sel("source").value;
+        if (sel("historyScope").value === "current" && cur) {
+          shown = shown.filter((s) => historyConnId(s.row) === cur);
+        }
+        if (!shown.length) { sel("historyBody").innerHTML = `<div class="muted">${escapeHtml(copy.hNone)}</div>`; return; }
+        sel("historyBody").innerHTML = `<table><thead><tr><th>${copy.hTime}</th><th>${copy.hConn}</th><th>${copy.hJob}</th><th>${copy.hRange}</th><th>${copy.hStatus}</th><th>${copy.hOutput}</th><th></th></tr></thead><tbody>` +
+          shown.map(({ row, i }) => `<tr><td class="mono">${escapeHtml(fmtLocal(row.createdAt))}</td><td>${escapeHtml(historyConnLabel(row))}</td><td class="mono">${escapeHtml(row.jobId)}</td><td>${escapeHtml(historyRange(row.options))}</td>` +
+            `<td>${escapeHtml(copy[row.status] || row.status || copy.hUnknown)}${row.error ? `<div class="hint" style="margin-top:4px;">${escapeHtml(row.error)}</div>` : ""}</td>` +
+            `<td>${escapeHtml(copy.hFilesTpl.replace("{files}", row.files || 0).replace("{bytes}", ((row.bytes || 0) / 1024).toFixed(1)))}</td>` +
+            `<td><button class="btn" data-h="${i}">${copy.hView}</button> <button class="btn" data-d="${i}">${copy.hDelete}</button></td></tr>`).join("") +
+          `</tbody></table>`;
+        sel("historyBody").querySelectorAll("button[data-h]").forEach((b) => b.addEventListener("click", () => selectHistoryJob(historyRows[parseInt(b.dataset.h, 10)])));
+        sel("historyBody").querySelectorAll("button[data-d]").forEach((b) => b.addEventListener("click", () => deleteHistoryJob(historyRows[parseInt(b.dataset.d, 10)], b)));
+      }
+      // Deleting an analysis also deletes the SQL it generated, which can be
+      // gigabytes and is not recoverable, so the button has to be armed by a
+      // first click and expires again if you do not confirm within a few seconds.
+      function deleteHistoryJob(row, btn) {
+        if (!row) return;
+        if (btn.dataset.arm !== "1") {
+          btn.dataset.arm = "1";
+          btn.textContent = copy.hDeleteSure;
+          setTimeout(() => { if (btn.dataset.arm === "1") { btn.dataset.arm = ""; btn.textContent = copy.hDelete; } }, 5000);
+          return;
+        }
+        invoke("job/delete", { jobId: row.jobId }, 20000).then(() => {
+          // The deleted job may be the one currently bound to the result tabs.
+          if (currentJob === row.jobId) newJob();
+          sel("jobInfo").textContent = copy.hDeletedTpl.replace("{id}", row.jobId);
+          loadHistory();
+        }).catch((e) => { sel("jobInfo").textContent = String(e.message || e); });
+      }
+      function selectHistoryJob(row) {
+        if (!row) return;
+        stopStatusPolling(); stopRequested = false;
+        currentJob = row.jobId;
+        lastStats = row.stats || null;
+        badges("jobBadge", row.status, row.status === "done" ? "ok" : (row.status === "failed" ? "err" : "run"));
+        sel("jobInfo").textContent = copy.hSelectedTpl.replace("{id}", row.jobId);
+        sel("stop").disabled = row.status !== "running";
+        sel("start").disabled = false;
+        renderStats(row.stats || null);
+        switchTab("files");
+        loadFileList(row.jobId);
+      }
+      // Clears the job binding without touching the form, so the next analysis can
+      // be tweaked from the same parameters instead of retyped.
+      function newJob() {
+        stopStatusPolling(); stopRequested = false;
+        currentJob = "";
+        badges("jobBadge", "idle", "");
+        sel("jobInfo").textContent = "";
+        sel("stop").disabled = true; sel("start").disabled = false;
+        resetResults();
       }
 
       function onProgress(p) {
         if (p.jobId !== currentJob && currentJob) return;
-        badges("jobBadge", p.stage || "running", "run");
+        lastEventAt = Date.now();
+        if (!stopRequested) badges("jobBadge", p.stage || "running", "run");
         sel("jobInfo").textContent = `events=${p.parsedEvents || 0} rows=${p.rows || 0} files=${p.sqlFiles || 0}`;
       }
       async function onDone(res) {
         if (res.jobId !== currentJob) return;
+        lastEventAt = Date.now();
+        stopStatusPolling(); stopRequested = false;
         sel("stop").disabled = true; sel("start").disabled = false;
         badges("jobBadge", res.status, res.status === "done" ? "ok" : (res.status === "failed" ? "err" : "run"));
-        if (res.error) { sel("jobInfo").textContent = res.error; return; }
+        // An error never means "no output": the engine writes SQL while it parses,
+        // so a stopped or failed job usually has real files. Report the reason in
+        // the header but still render whatever was produced.
+        if (res.error) sel("jobInfo").textContent = res.error;
         lastFiles = res.files || [];
         lastStats = res.stats || null;
         renderStats(res.stats);
         await loadFileList(res.jobId);
+        // Per-table stats live only in the engine's memory, so a terminal result that
+        // came from the stop watchdog (or from job/status after a restart) can carry
+        // files without them. Point at the files instead of a bare "no result"; a
+        // normally finished job keeps the more useful "why 0 rows" diagnostic.
+        if (res.status !== "done" && !(res.stats && (res.stats.perTable || res.stats.tables) && (res.stats.perTable || res.stats.tables).length) && lastFileList.length) {
+          sel("statsEmpty").hidden = false; sel("statsBody").hidden = true;
+          sel("statsEmpty").textContent = copy.outWithoutStatsTpl.replace("{files}", lastFileList.length);
+        }
+        // The finished job is now a history row with a summary; keep an open list fresh.
+        if (!sel("tab-history").hidden) loadHistory();
       }
       function diagFrom(stats) {
         if (!stats) return "";
@@ -492,10 +691,10 @@
           return;
         }
         sel("statsEmpty").hidden = true; sel("statsBody").hidden = false;
-        const summary = `<div class="hint">rows=${stats.totalRows || 0} · events=${stats.parsedEvents || 0} · trx=${stats.totalTrx || 0} · big-trx=${stats.bigTrx || 0} · long-trx=${stats.longTrx || 0}`
-          + (stats.timeStart ? ` · ${stats.timeStart} → ${stats.timeEnd}` : "") + "</div>";
+        const summary = `<div class="hint">rows=${num(stats.totalRows)} · events=${num(stats.parsedEvents)} · trx=${num(stats.totalTrx)} · big-trx=${num(stats.bigTrx)} · long-trx=${num(stats.longTrx)}`
+          + (stats.timeStart ? ` · ${escapeHtml(stats.timeStart)} → ${escapeHtml(stats.timeEnd)}` : "") + "</div>";
         sel("statsBody").innerHTML = summary + `<table style="margin-top:6px;"><thead><tr><th>${copy.statTable}</th><th>${copy.statInsert}</th><th>${copy.statUpdate}</th><th>${copy.statDelete}</th><th>${copy.statTotal}</th></tr></thead><tbody>` +
-          rows.map((t) => `<tr><td>${escapeHtml(t.table)}</td><td>${t.insert || 0}</td><td>${t.update || 0}</td><td>${t.delete || 0}</td><td>${(t.total != null ? t.total : (t.rows || 0))}</td></tr>`).join("") + `</tbody></table>`;
+          rows.map((t) => `<tr><td>${escapeHtml(t.table)}</td><td>${num(t.insert)}</td><td>${num(t.update)}</td><td>${num(t.delete)}</td><td>${num(t.total != null ? t.total : t.rows)}</td></tr>`).join("") + `</tbody></table>`;
       }
       async function loadFileList(jobId) {
         try {
@@ -504,21 +703,25 @@
           lastFileList = files;
           lastOutDir = r.outDir || "";
           sel("outPath").textContent = lastOutDir || "-";
+          // Nothing is read until a file is clicked. The first file of a real
+          // analysis is routinely the largest one (the rollback script), and
+          // previewing it unasked used to pull gigabytes into a panel nobody had
+          // opened yet.
+          sel("preview").textContent = files.length ? copy.pickFile : copy.emptyOut;
           if (!files.length) {
             sel("fileList").innerHTML = `<li style="display:block;cursor:default;"><span class="muted">${copy.emptyOut}</span><div class="hint" style="margin-top:4px;">${escapeHtml(diagFrom(lastStats))}</div></li>`;
             sel("execFile").innerHTML = `<option value="">-</option>`;
             return;
           }
-          sel("fileList").innerHTML = files.map((f, i) => `<li data-i="${i}" data-n="${escapeHtml(f.name)}" data-p="${escapeHtml(f.path || "")}">${escapeHtml(f.name)}<span class="muted">${f.kind || "sql"}</span></li>`).join("");
+          sel("fileList").innerHTML = files.map((f, i) => `<li data-i="${i}" data-n="${escapeHtml(f.name)}" data-p="${escapeHtml(f.path || "")}">${escapeHtml(f.name)}<span class="muted">${escapeHtml(f.kind || "sql")}</span></li>`).join("");
           sel("execFile").innerHTML = files.filter((f) => f.kind === "rollback").map((f) => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join("") || `<option value="">-</option>`;
           sel("fileList").querySelectorAll("li").forEach((li) => li.addEventListener("click", () => previewFile(jobId, li.dataset.n, li)));
-          const first = sel("fileList").querySelector("li"); if (first) first.click();
         } catch (e) { sel("fileList").innerHTML = `<li>${escapeHtml(String(e.message || e))}</li>`; }
       }
       async function previewFile(jobId, name, li) {
         sel("fileList").querySelectorAll("li").forEach((x) => x.classList.remove("sel")); if (li) li.classList.add("sel");
         if (li && li.dataset.p) sel("outPath").textContent = li.dataset.p;
-        try { const p = await invoke("job/output/preview", { jobId, file: name, offset: 0, limit: 500 }); sel("preview").textContent = (p.lines || []).join("\n") + (p.truncated ? `\n… (${p.total} lines total)` : ""); }
+        try { const p = await invoke("job/output/preview", { jobId, file: name, offset: 0, limit: 500 }); sel("preview").textContent = (p.lines || []).join("\n") + (p.truncated ? (p.total >= 0 ? "\n… " + copy.previewMore.replace("{total}", p.total) : "\n… " + copy.previewMoreBig) : ""); }
         catch (e) { sel("preview").textContent = String(e.message || e); }
       }
       // Copy the shown output path to the system clipboard. host.copy (clipboard
@@ -552,7 +755,8 @@
 
       function switchTab(name) {
         document.querySelectorAll('[role="tab"]').forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
-        ["stats", "files", "exec"].forEach((t) => { sel("tab-" + t).hidden = t !== name; });
+        ["stats", "files", "exec", "history"].forEach((t) => { sel("tab-" + t).hidden = t !== name; });
+        if (name === "history") loadHistory();
       }
 
       window.dbxPlugin.ready.then(async (ctx) => {
@@ -575,6 +779,9 @@
         sel("addToFilter").addEventListener("click", addToFilter);
         sel("start").addEventListener("click", startJob);
         sel("stop").addEventListener("click", stopJob);
+        sel("newJob").addEventListener("click", newJob);
+        sel("refreshHistory").addEventListener("click", loadHistory);
+        sel("historyScope").addEventListener("change", renderHistory);
         sel("copyFile").addEventListener("click", () => copyPath(sel("outPath").textContent));
         sel("copyDir").addEventListener("click", () => copyPath(lastOutDir));
         sel("prepare").addEventListener("click", prepareExec);

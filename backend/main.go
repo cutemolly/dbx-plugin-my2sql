@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"runtime/debug"
 	"strconv"
 
 	sdk "github.com/t8y2/dbx/plugins/sdk/go/dbx-plugin-sdk"
@@ -34,7 +36,28 @@ func newPlugin() *my2sqlPlugin {
 	return &my2sqlPlugin{sessions: sessions, jobs: jobs, exec: NewExecManager(sessions, jobs)}
 }
 
-func (p *my2sqlPlugin) Handle(_ sdk.RequestContext, method string, params json.RawMessage, emitter *sdk.Emitter) (any, *sdk.PluginError) {
+// Handle is the SDK entry point. The SDK calls it straight from its request
+// loop with no recover of its own, so a panic in any handler would take the
+// whole sidecar down: every running job, every open session and every pending
+// confirmation token go with it, and the workbench is left reporting "unknown
+// job" for work that is still in flight. A panic becomes this request's error
+// instead; the stack still reaches the host through stderr.
+func (p *my2sqlPlugin) Handle(rc sdk.RequestContext, method string, params json.RawMessage, emitter *sdk.Emitter) (result any, perr *sdk.PluginError) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			// The panic value and its stack belong to the plugin log (the host
+			// forwards stderr), not to the RPC client: a driver or parser panic can
+			// carry a DSN, and UI error lines get pasted into issue reports.
+			debug.PrintStack()
+			log.Printf("panic while handling %s: %v", method, rec)
+			result = nil
+			perr = sdk.NewError(-32000, fmt.Sprintf("internal error while handling %s (details in the plugin log)", method))
+		}
+	}()
+	return p.handle(rc, method, params, emitter)
+}
+
+func (p *my2sqlPlugin) handle(_ sdk.RequestContext, method string, params json.RawMessage, emitter *sdk.Emitter) (any, *sdk.PluginError) {
 	publish := func(m string, payload any) { _ = emitter.Event(m, payload) }
 	ctx := newContext()
 
@@ -164,6 +187,30 @@ func (p *my2sqlPlugin) Handle(_ sdk.RequestContext, method string, params json.R
 		}
 		return snap, nil
 
+	case "job/history":
+		var q struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(params, &q)
+		list, err := p.jobs.History(q.Limit)
+		if err != nil {
+			return nil, sdk.NewError(-32000, err.Error())
+		}
+		return map[string]any{"jobs": list}, nil
+
+	case "job/delete":
+		var q struct {
+			JobID string `json:"jobId"`
+		}
+		_ = json.Unmarshal(params, &q)
+		if err := p.jobs.Delete(q.JobID); err != nil {
+			return nil, sdk.NewError(-32000, err.Error())
+		}
+		// Any confirmation issued for this job's files is now meaningless.
+		p.exec.ForgetPending(q.JobID)
+		log.Printf("deleted job %s and its output", q.JobID)
+		return map[string]any{"success": true}, nil
+
 	case "job/output/list":
 		var q struct {
 			JobID string `json:"jobId"`
@@ -173,7 +220,7 @@ func (p *my2sqlPlugin) Handle(_ sdk.RequestContext, method string, params json.R
 		if err != nil {
 			return nil, sdk.NewError(-32000, err.Error())
 		}
-		dir, _ := jobOutputDir(q.JobID)
+		dir, _ := jobOutputPath(q.JobID)
 		return map[string]any{"files": files, "outDir": dir}, nil
 
 	case "job/output/preview":

@@ -4,8 +4,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +141,82 @@ func TestIdlePollPastWindow(t *testing.T) {
 	future := &parseState{stopAt: time.Now().Add(time.Hour)}
 	if future.idlePollPastWindow() {
 		t.Fatal("window still open must keep waiting")
+	}
+}
+
+// --- window validation -------------------------------------------------------
+
+func windowState(mode, startDT, stopDT string) *parseState {
+	return &parseState{
+		spec: &ConnectionSpec{},
+		// Pinned so the future/past assertions do not depend on the machine zone.
+		opts: AnalysisOptions{Mode: mode, StartDT: startDT, StopDT: stopDT, Timezone: "UTC"},
+	}
+}
+
+func mysqlDT(d time.Duration) string { return time.Now().UTC().Add(d).Format("2006-01-02 15:04:05") }
+
+// Regression for "start file + stop time leaves the job running forever": an
+// online scan can only finish on a stop boundary once the wall clock passes it,
+// so a future stop time is not a bound at all. It must be rejected up front
+// with the interpreted timezone spelled out, instead of streaming binlog for
+// hours.
+func TestLoadWindowRejectsFutureStopOnline(t *testing.T) {
+	err := windowState("repl", "", mysqlDT(2*time.Hour)).loadWindow()
+	if err == nil {
+		t.Fatal("a stop time 2h in the future must be rejected in online mode")
+	}
+	if !strings.Contains(err.Error(), "in the future") || !strings.Contains(err.Error(), "UTC") {
+		t.Fatalf("error must name the problem and the zone: %v", err)
+	}
+}
+
+// A past window and a clock-skew-sized margin are both fine, and offline scans
+// keep accepting future stop times because their events are all in the past.
+func TestLoadWindowAcceptsValidWindows(t *testing.T) {
+	if err := windowState("repl", mysqlDT(-3*time.Hour), mysqlDT(-time.Hour)).loadWindow(); err != nil {
+		t.Fatalf("past online window rejected: %v", err)
+	}
+	if err := windowState("repl", "", mysqlDT(30*time.Second)).loadWindow(); err != nil {
+		t.Fatalf("stop time inside the clock-skew tolerance rejected: %v", err)
+	}
+	if err := windowState("file", "", mysqlDT(2*time.Hour)).loadWindow(); err != nil {
+		t.Fatalf("offline mode must not be restricted by the online guard: %v", err)
+	}
+	if err := windowState("repl", "", "").loadWindow(); err != nil {
+		t.Fatalf("unbounded capture rejected: %v", err)
+	}
+}
+
+// An inverted window can never match a row; failing fast beats a job that
+// reports zero hits and leaves the DBA guessing.
+func TestLoadWindowRejectsInvertedWindow(t *testing.T) {
+	err := windowState("repl", mysqlDT(-time.Hour), mysqlDT(-2*time.Hour)).loadWindow()
+	if err == nil || !strings.Contains(err.Error(), "before start time") {
+		t.Fatalf("want inverted-window error, got %v", err)
+	}
+}
+
+// A manual stop must count as a stop, not as a parse failure: Run only keeps and
+// reports the flushed SQL on the stop path, and go-mysql hands the cancellation
+// back wrapped in its own message. Bare equality would have missed it.
+func TestIsStoppedSeesThroughWrapping(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{context.Canceled, true},
+		{fmt.Errorf("dump binlog: %w", context.Canceled), true},
+		{ctx.Err(), true},
+		{context.DeadlineExceeded, true},
+		{fmt.Errorf("begin to send dump request: broken pipe"), false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		if got := isStopped(c.err); got != c.want {
+			t.Errorf("isStopped(%v) = %v want %v", c.err, got, c.want)
+		}
 	}
 }

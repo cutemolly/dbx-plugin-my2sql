@@ -11,7 +11,7 @@
 //   node smoke.mjs            # builds then runs all assertions
 //   GO_BIN=/path/go node smoke.mjs
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -123,6 +123,27 @@ async function main() {
   // The placeholder engine reports an actionable M2 wiring message, not a crash.
   const job = await send("job/start", { sourceConnectionId: "c1", mode: "repl", workType: "rollback", databases: ["x"] });
   check("job on closed connection errors cleanly", !!job.error, job.error && job.error.message);
+
+  // The history view answers over the request channel with nothing running: that
+  // is what lets the workbench rebuild its job list after a sidecar restart.
+  const hist = await send("job/history", { limit: 5 });
+  check("job/history returns a jobs array", !!hist.result && Array.isArray(hist.result.jobs), JSON.stringify(hist.result));
+
+  // Deleting an entry is the only way to reclaim the disk a wide analysis leaves
+  // behind, and no read path may resurrect the directory it removed.
+  const ghost = "20990101T000000-9";
+  mkdirSync(path.join(work, "jobs", ghost), { recursive: true });
+  writeFileSync(path.join(work, "jobs", ghost, "my2sql.forward.sql"), "-- seeded\n", { mode: 0o600 });
+  const seeded = await send("job/history", { limit: 50 });
+  check("job/history lists a directory with no live job", !!seeded.result && seeded.result.jobs.some((r) => r.jobId === ghost), JSON.stringify(seeded.result));
+  const badDel = await send("job/delete", { jobId: "../outside" });
+  check("job/delete rejects a traversal jobId", !!badDel.error && badDel.error.code === -32000, badDel.error && badDel.error.message);
+  const del = await send("job/delete", { jobId: ghost });
+  check("job/delete removes the job", !!del.result && del.result.success === true, JSON.stringify(del.result || del.error));
+  const afterList = await send("job/output/list", { jobId: ghost });
+  check("listing a deleted job fails instead of recreating it", !!afterList.error, JSON.stringify(afterList.result || afterList.error));
+  const afterHist = await send("job/history", { limit: 50 });
+  check("deleted job disappears from history", !!afterHist.result && !afterHist.result.jobs.some((r) => r.jobId === ghost), JSON.stringify(afterHist.result));
 }
 
 main()

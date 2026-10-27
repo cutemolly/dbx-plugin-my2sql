@@ -1,5 +1,6 @@
 dist/
 .dbx-dev/
+repro.local.env
 node_modules/
 backend/my2sql-sidecar
 backend/my2sql-sidecar.exe

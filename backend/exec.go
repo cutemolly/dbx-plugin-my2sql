@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -40,10 +45,11 @@ type execution struct {
 // validated Prepare. This moves the confirmation gate from the UI into the
 // sidecar.
 type pendingConfirm struct {
-	jobID    string
-	file     string
-	targetID string
-	created  time.Time
+	jobID      string
+	file       string
+	targetID   string
+	statements int // counted by Prepare; reused as the progress total
+	created    time.Time
 }
 
 // confirmTTL bounds how long a Prepare result stays startable. Re-running
@@ -82,6 +88,20 @@ func (m *ExecManager) gcPendingLocked() {
 	}
 }
 
+// ForgetPending drops the confirmations issued for a job whose output has just
+// been deleted, so a token can never survive into an execution of a file that is
+// gone. The one-shot check in Start would reject it anyway; this keeps the
+// pending set honest.
+func (m *ExecManager) ForgetPending(jobID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for token, pe := range m.pending {
+		if pe.jobID == jobID {
+			delete(m.pending, token)
+		}
+	}
+}
+
 // Prepare counts statements and returns a bounded preview plus a one-shot
 // confirmToken so the host can show a confirmation dialog naming the target
 // and the statement volume. Only Start with that token may execute the file.
@@ -89,7 +109,7 @@ func (m *ExecManager) Prepare(jobID, fileName, targetConnectionID string) (map[s
 	if _, err := m.sessions.Require(targetConnectionID); err != nil {
 		return nil, err
 	}
-	dir, err := jobOutputDir(jobID)
+	dir, err := jobOutputPath(jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -97,14 +117,22 @@ func (m *ExecManager) Prepare(jobID, fileName, targetConnectionID string) (map[s
 	if clean != fileName {
 		return nil, fmt.Errorf("invalid file name")
 	}
-	data, err := os.ReadFile(filepath.Join(dir, clean))
-	if err != nil {
+	// Count and preview by streaming: the confirm dialog has to name the
+	// statement volume of a file that can be gigabytes, and reading it whole is
+	// what killed the process.
+	count := 0
+	preview := []string{}
+	if err := streamStatements(filepath.Join(dir, clean), func(stmt string, _ int) error {
+		count++
+		if len(preview) < 20 {
+			preview = append(preview, stmt)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	stmts := splitStatements(string(data))
-	preview := stmts
-	if len(preview) > 20 {
-		preview = preview[:20]
+	if count == 0 {
+		return nil, fmt.Errorf("%s contains no executable statement", clean)
 	}
 	token, err := newConfirmToken()
 	if err != nil {
@@ -112,12 +140,12 @@ func (m *ExecManager) Prepare(jobID, fileName, targetConnectionID string) (map[s
 	}
 	m.mu.Lock()
 	m.gcPendingLocked()
-	m.pending[token] = &pendingConfirm{jobID: jobID, file: clean, targetID: targetConnectionID, created: time.Now()}
+	m.pending[token] = &pendingConfirm{jobID: jobID, file: clean, targetID: targetConnectionID, statements: count, created: time.Now()}
 	m.mu.Unlock()
 	return map[string]any{
 		"jobId":              jobID,
 		"file":               clean,
-		"statementCount":     len(stmts),
+		"statementCount":     count,
 		"targetConnectionId": targetConnectionID,
 		"firstStatements":    preview,
 		"confirmToken":       token,
@@ -147,28 +175,44 @@ func (m *ExecManager) Start(jobID, fileName, targetConnectionID, confirmToken st
 	if err != nil {
 		return "", err
 	}
-	dir, err := jobOutputDir(jobID)
+	dir, err := jobOutputPath(jobID)
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, clean))
-	if err != nil {
-		return "", err
-	}
-	stmts := splitStatements(string(data))
+	path := filepath.Join(dir, clean)
 
 	id := "exec-" + time.Now().UTC().Format("20060102T150405")
 	ctx, cancel := context.WithCancel(context.Background())
-	ex := &execution{ID: id, Status: ExecRunning, Total: len(stmts), cancel: cancel}
+	// The total comes from the counted Prepare rather than a second scan of a
+	// file that may be gigabytes; the token is only valid for that exact file.
+	ex := &execution{ID: id, Status: ExecRunning, Total: pe.statements, cancel: cancel}
 	m.mu.Lock()
 	m.exec[id] = ex
 	m.mu.Unlock()
 
-	go m.run(ctx, ex, spec, stmts, publish)
+	go m.run(ctx, ex, spec, path, publish)
 	return id, nil
 }
 
-func (m *ExecManager) run(ctx context.Context, ex *execution, spec *ConnectionSpec, stmts []string, publish EventPublisher) {
+// errScanStopped ends the statement stream without meaning "the execution
+// failed": it is what a cancel or a failing statement uses to unwind.
+var errScanStopped = errors.New("statement scan stopped")
+
+func (m *ExecManager) run(ctx context.Context, ex *execution, spec *ConnectionSpec, path string, publish EventPublisher) {
+	// Same isolation as the analysis engine: a panic while executing statements
+	// must fail this execution, not the process that also holds every running
+	// job and the pending confirm tokens.
+	defer func() {
+		if rec := recover(); rec != nil {
+			debug.PrintStack()
+			log.Printf("panic while executing rollback statements: %v", rec)
+			ex.mu.Lock()
+			ex.Status = ExecFailed
+			ex.Error = "execution panic (details in the plugin log)"
+			ex.mu.Unlock()
+			m.emit(ex, publish)
+		}
+	}()
 	db, err := openDB(ctx, spec)
 	if err != nil {
 		ex.mu.Lock()
@@ -180,12 +224,14 @@ func (m *ExecManager) run(ctx context.Context, ex *execution, spec *ConnectionSp
 	}
 	defer db.Close()
 
-	for i, stmt := range stmts {
-		if ctx.Err() == context.Canceled {
+	// Stream the file: execute each statement as it is read instead of holding
+	// every statement of a multi-gigabyte rollback file in memory.
+	scanErr := streamStatements(path, func(stmt string, i int) error {
+		if ctx.Err() != nil {
 			ex.mu.Lock()
 			ex.Status = ExecStopped
 			ex.mu.Unlock()
-			break
+			return errScanStopped
 		}
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			ex.mu.Lock()
@@ -194,14 +240,26 @@ func (m *ExecManager) run(ctx context.Context, ex *execution, spec *ConnectionSp
 			ex.FailedAt = i
 			ex.Error = fmt.Sprintf("statement %d failed: %v", i+1, err)
 			ex.mu.Unlock()
-			break
+			return errScanStopped
 		}
 		ex.mu.Lock()
 		ex.Done = i + 1
+		if i+1 > ex.Total {
+			ex.Total = i + 1 // the file grew past what Prepare counted
+		}
 		ex.mu.Unlock()
-		if publish != nil && (i%200 == 0 || i == len(stmts)-1) {
+		if publish != nil && i%200 == 0 {
 			m.emit(ex, publish)
 		}
+		return nil
+	})
+	if scanErr != nil && !errors.Is(scanErr, errScanStopped) {
+		ex.mu.Lock()
+		ex.Status = ExecFailed
+		if ex.Error == "" {
+			ex.Error = scanErr.Error()
+		}
+		ex.mu.Unlock()
 	}
 
 	ex.mu.Lock()
@@ -258,30 +316,133 @@ func (m *ExecManager) Snapshot(id string) (map[string]any, error) {
 // with multi-line statements are out of scope for the skeleton.
 func splitStatements(content string) []string {
 	out := []string{}
-	var buf strings.Builder
-	flush := func() {
-		s := strings.TrimSpace(buf.String())
-		buf.Reset()
-		if s != "" {
-			out = append(out, s)
-		}
-	}
+	sp := stmtSplitter{emit: func(stmt string) error {
+		out = append(out, stmt)
+		return nil
+	}}
 	for _, line := range strings.Split(content, "\n") {
-		t := strings.TrimSpace(line)
-		if t == "" || strings.HasPrefix(t, "--") || strings.HasPrefix(t, "#") || strings.EqualFold(t, "SET NAMES") {
-			continue
+		_ = sp.line(line)
+	}
+	_ = sp.finish()
+	return out
+}
+
+// stmtSplitter is the single definition of a statement boundary in generated
+// SQL. It is fed one line at a time so the same rules apply whether the caller
+// holds the whole file (splitStatements) or is streaming it (streamStatements).
+type stmtSplitter struct {
+	buf  strings.Builder
+	emit func(stmt string) error
+}
+
+func (s *stmtSplitter) line(raw string) error {
+	t := strings.TrimSpace(raw)
+	if t == "" || strings.HasPrefix(t, "--") || strings.HasPrefix(t, "#") || strings.EqualFold(t, "SET NAMES") {
+		return nil
+	}
+	s.buf.WriteString(raw)
+	if strings.HasSuffix(t, ";") {
+		stmt := strings.TrimSpace(strings.TrimSuffix(s.buf.String(), ";"))
+		s.buf.Reset()
+		if stmt != "" {
+			return s.emit(stmt)
 		}
-		buf.WriteString(line)
-		if strings.HasSuffix(t, ";") {
-			s := strings.TrimSpace(strings.TrimSuffix(buf.String(), ";"))
-			buf.Reset()
-			if s != "" {
-				out = append(out, s)
+		return nil
+	}
+	s.buf.WriteString(" ")
+	return nil
+}
+
+// finish emits a trailing statement that was never closed by a semicolon.
+func (s *stmtSplitter) finish() error {
+	stmt := strings.TrimSpace(s.buf.String())
+	s.buf.Reset()
+	if stmt != "" {
+		return s.emit(stmt)
+	}
+	return nil
+}
+
+// maxStatementBytes bounds a single statement read from an output file. A
+// generated file ends every statement with a newline, so anything past this is
+// a corrupt or hand-edited file; failing loudly is better than allocating the
+// rest of it or executing a silently truncated statement.
+const maxStatementBytes = 64 << 20
+
+// nextLine reads one '\n'-terminated line, keeping at most max bytes of it.
+// found is false only when the reader is at end of file with nothing left;
+// an empty line is reported as found with an empty string, so callers keep the
+// original line numbering. truncated says characters were dropped.
+func nextLine(br *bufio.Reader, max int) (line string, truncated bool, found bool, err error) {
+	var b strings.Builder
+	for {
+		chunk, rerr := br.ReadSlice('\n')
+		if len(chunk) > 0 {
+			found = true
+			if b.Len() < max {
+				if room := max - b.Len(); len(chunk) > room {
+					b.Write(chunk[:room])
+					truncated = true
+				} else {
+					b.Write(chunk)
+				}
+			} else {
+				truncated = true
 			}
-		} else {
-			buf.WriteString(" ")
+		}
+		if rerr != nil {
+			if errors.Is(rerr, bufio.ErrBufferFull) {
+				continue // the buffer is full, not the line
+			}
+			if errors.Is(rerr, io.EOF) {
+				return strings.TrimSuffix(b.String(), "\n"), truncated, found, nil
+			}
+			return "", false, false, rerr
+		}
+		return strings.TrimSuffix(b.String(), "\n"), truncated, found, nil
+	}
+}
+
+// streamStatements scans a SQL file and calls fn for every statement in file
+// order, keeping at most one statement in memory. Rollback files from a real
+// analysis run into the gigabytes, and loading one whole (the previous
+// os.ReadFile + splitStatements) is what pushed the sidecar into a fatal
+// allocation and took the running jobs down with it. fn's error aborts the
+// scan and is returned to the caller.
+func streamStatements(path string, fn func(stmt string, index int) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	// ReadString, not Scanner: a generated INSERT can carry a row wide enough to
+	// cross the scanner token limit.
+	br := bufio.NewReaderSize(f, 256<<10)
+	sp := stmtSplitter{}
+	i := 0
+	sp.emit = func(stmt string) error {
+		err := fn(stmt, i)
+		i++
+		return err
+	}
+	lineNo := 0
+	for {
+		line, truncated, found, rerr := nextLine(br, maxStatementBytes)
+		lineNo++
+		if truncated {
+			return fmt.Errorf("line %d of %s is longer than %d bytes; refusing to execute a possibly truncated statement", lineNo, filepath.Base(path), maxStatementBytes)
+		}
+		if found {
+			if lerr := sp.line(line); lerr != nil {
+				return lerr
+			}
+		}
+		if rerr != nil {
+			return rerr
+		}
+		if !found {
+			break
 		}
 	}
-	flush()
-	return out
+	return sp.finish()
 }

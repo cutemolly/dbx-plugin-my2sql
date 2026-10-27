@@ -84,12 +84,26 @@ type OutputFile struct {
 type job struct {
 	id      string
 	opts    AnalysisOptions
+	conn    JobConnectionRef
 	status  JobStatus
 	result  *JobResult
 	created time.Time
+	outDir  string // job output directory; also where job.json summary lives
 	cancel  context.CancelFunc
 	done    chan struct{} // closed by run() when the engine goroutine lands
 	mu      sync.Mutex
+}
+
+// JobConnectionRef is the connection identity stored with a job. The name and
+// endpoint are copied at start time on purpose: the saved connection may later
+// be renamed or deleted, and a history row must still say what was analysed.
+// Credentials are deliberately absent — account and password are never written
+// to the job summary.
+type JobConnectionRef struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+	Host string `json:"host,omitempty"`
+	Port int    `json:"port,omitempty"`
 }
 
 // JobManager owns in-flight and completed analyses. The sidecar is shared per
