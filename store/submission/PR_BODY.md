@@ -16,15 +16,37 @@ findings from that review are fixed here; see "Security review fixes" below.
 ## Source repository and tag
 
 Source: https://github.com/cutemolly/dbx-plugin-my2sql
-Tag the candidates were built from: `v1.0.1` (commit `b88903b`).
+Tag the candidates belong to: `v1.0.1` (annotated; `git rev-parse v1.0.1^{commit}`
+resolves to the same commit as `main`, so the tag, the branch and this submission
+bundle are one state).
 
-> Disclosure: `v1.0.1` was first cut at `254e02c` for the initial submission. The
-> review round and local testing surfaced further defects (a whole-file read that
-> could abort the sidecar, lost output on manual stop, and the deletion path
-> below), so the annotated tag was moved to `b88903b` and all five assets were
-> rebuilt from that commit on 2026-10-27. The version number stayed `1.0.1` by
-> the reviewer's and publisher's choice; `release-candidates.json` and the pins
-> in `candidates/io.github.my2sql.json` reflect the rebuilt assets.
+> Build provenance, stated exactly:
+> - The five attached candidates were built by the official reusable workflow in
+>   run https://github.com/cutemolly/dbx-plugin-my2sql/actions/runs/40454704037,
+>   dispatched on ref `v1.0.1`, head commit `ae0e7c3`.
+> - `v1.0.1` was first cut at `254e02c` for the initial submission, then moved
+>   when review round 2 and local testing surfaced further defects (a whole-file
+>   read that could abort the sidecar, lost output on manual stop, the deletion
+>   path below). The version number stayed `1.0.1`: `1.0.1` was never listed or
+>   signed, so this is a pre-publication correction, not a rewrite of a published
+>   release.
+> - The tag commit may differ from `ae0e7c3` only in the store submission files
+>   (`store/candidate.json`, `store/submission/PR_BODY.md`,
+>   `store/submission/candidates/`) — `git diff --name-only ae0e7c3 v1.0.1^{commit}`
+>   shows nothing else. None of those files are packaged: the `.dbxp` contains
+>   only `manifest.json`, `ui/index.html`, the two icons, `LICENSE`,
+>   `THIRD_PARTY_NOTICES.md`, `checksums.json` and `bin/<target>/my2sql-sidecar`.
+>   Every code, UI and build input is identical.
+> - The packager is **not** byte-reproducible. Archive entries are timestamp-
+>   normalized, but the compiled sidecar is not: two workflow runs whose build
+>   inputs were identical produced the same size on three targets and 1–2 bytes
+>   apart on two, with all five digests different. The digests pinned in
+>   `candidates/io.github.my2sql.json` are therefore the digests of the bytes
+>   actually published under Release `v1.0.1` — `gh release download v1.0.1` plus
+>   `shasum -a 256` reproduces the comparison — and match the workflow-generated
+>   `release-candidates.json` attached to the same release. A maintainer re-running
+>   the sign step against these pinned bytes is safe; re-running the *build* is not
+>   expected to reproduce them.
 
 Unsigned candidate assets and the merged `release-candidates.json` are attached to
 GitHub Release `v1.0.1`:
@@ -32,7 +54,9 @@ https://github.com/cutemolly/dbx-plugin-my2sql/releases/tag/v1.0.1
 
 The release was produced by the official reusable workflow
 (`t8y2/dbx/.github/workflows/plugin-release-reusable.yml@plugin-cli-v0.1.2`),
-which builds one candidate per target on that target's own runner.
+which builds one candidate per target on that target's own runner (linux-x64,
+linux-arm64, windows-x64, darwin-x64, darwin-arm64 — each on its native image,
+no cross-compilation).
 
 ## Capabilities and user workflow
 
@@ -132,7 +156,7 @@ transport, launched by the DBX host).
    crypto/edwards25519 BSD-3-Clause; remainder MIT including Masterminds/semver).
 6. **`host.storage`** — removed as unused.
 
-## Review round 2 (same `1.0.1` tag, commit `b88903b`)
+## Review round 2 (folded into the `1.0.1` tag)
 
 Found while testing the plugin against real traffic; none of these required a
 version bump, so they were folded into `1.0.1` (see the tag disclosure above).
@@ -192,7 +216,7 @@ https://github.com/cutemolly/dbx-plugin-my2sql (issues tracked here)
 
 ## Confirmation
 
-- [x] The candidate packages are unsigned and match the disclosed source tag
-      (tag `v1.0.1` at `b88903b`, rebuilt assets — see the tag disclosure above).
+- [x] The candidate packages are unsigned and match the disclosed source (see the
+      build-provenance block above: run `40454704037` on ref `v1.0.1`).
 - [x] I have not included private keys, tokens, credentials, or proprietary data.
 - [x] The candidates are listed in `candidates/io.github.my2sql.json`; `plugins/` and `catalog/` were not edited manually.
